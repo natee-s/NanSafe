@@ -1,6 +1,7 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "rewrites": [
+    { "source": "/api/health", "destination": "/api/health.mjs" },
     { "source": "/api/waterlevel", "destination": "/api/waterlevel.mjs" },
     { "source": "/api/waterlevel-history", "destination": "/api/waterlevel-history.mjs" },
     { "source": "/data/:path*", "destination": "/app/data/:path*" },
