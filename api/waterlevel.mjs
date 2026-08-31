@@ -24,7 +24,7 @@ async function readJson(url) {
   }
 }
 
-export async function GET(request) {
+export default { async fetch(request) {
   try {
     const url = new URL(request.url);
     const province = url.searchParams.get('province') || '55';
@@ -36,4 +36,4 @@ export async function GET(request) {
   } catch (error) {
     return json({ error: 'Unable to read ThaiWater data', message: error?.message || 'upstream unavailable' }, 502);
   }
-}
+} };

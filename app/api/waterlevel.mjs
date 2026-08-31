@@ -5,7 +5,7 @@ function json(payload, status = 200) {
   return new Response(JSON.stringify(payload), { status, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*', 'Cache-Control': 's-maxage=60, stale-while-revalidate=300' } });
 }
 
-export async function GET(request) {
+export default { async fetch(request) {
   try {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 12000);
@@ -20,4 +20,4 @@ export async function GET(request) {
   } catch (error) {
     return json({ error: 'Unable to read ThaiWater data', message: error?.message || 'upstream unavailable' }, 502);
   }
-}
+} };

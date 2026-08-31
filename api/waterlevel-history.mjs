@@ -24,7 +24,7 @@ async function readJson(url) {
   }
 }
 
-export async function GET(request) {
+export default { async fetch(request) {
   const id = new URL(request.url).searchParams.get('id') || '';
   if (!/^\d+$/.test(id)) return json({ error: 'A numeric station id is required' }, 400);
   try {
@@ -34,4 +34,4 @@ export async function GET(request) {
   } catch (error) {
     return json({ error: 'Unable to read station history', message: error?.message || 'upstream unavailable' }, 502);
   }
-}
+} };
