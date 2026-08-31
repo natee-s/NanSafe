@@ -1,0 +1,10 @@
+{
+  "name": "NanSafe — ระบบเตือนภัยจังหวัดน่าน",
+  "short_name": "NanSafe",
+  "description": "ระบบเฝ้าระวังและแจ้งเตือนภัยพิบัติสำหรับประชาชนจังหวัดน่าน",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#f6fbfc",
+  "theme_color": "#07505d",
+  "lang": "th"
+}

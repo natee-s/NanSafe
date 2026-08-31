@@ -1,0 +1,12 @@
+# Generated and local-only artifacts
+work/
+outputs/*.zip
+
+# Operating system and editor files
+.DS_Store
+Thumbs.db
+.vscode/
+
+# Runtime files
+node_modules/
+npm-debug.log*

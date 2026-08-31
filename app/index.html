@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="th">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#07505d" />
+    <meta name="description" content="NanSafe — ระบบเฝ้าระวังและแจ้งเตือนภัยพิบัติสำหรับประชาชนจังหวัดน่าน" />
+    <link rel="manifest" href="./manifest.webmanifest" />
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%2307505d'/%3E%3Cpath d='M32 8c11 10 18 19 18 30a18 18 0 1 1-36 0C14 27 21 18 32 8Z' fill='%23bfe7ec'/%3E%3Cpath d='M24 39c3-6 8-9 16-10' stroke='%2307505d' stroke-width='4' stroke-linecap='round'/%3E%3C/svg%3E" />
+    <link rel="stylesheet" href="./styles.css" />
+    <title>NanSafe — รู้สถานการณ์ รู้ความเสี่ยง รู้ว่าต้องทำอะไร</title>
+  </head>
+  <body>
+    <a class="skip-link" href="#main-content">ข้ามไปยังเนื้อหาหลัก</a>
+    <div id="app" class="app-shell">
+      <header class="topbar">
+        <button class="brand" type="button" data-action="navigate" data-page="home" aria-label="ไปหน้าหลัก NanSafe">
+          <span class="brand-mark" aria-hidden="true">N</span>
+          <span><strong>NanSafe</strong><small>จังหวัดน่าน</small></span>
+        </button>
+        <div class="topbar-actions">
+          <button class="icon-button" type="button" data-action="open-notifications" aria-label="เปิดการแจ้งเตือน">
+            <span aria-hidden="true">🔔</span><span class="notification-dot" aria-hidden="true"></span>
+          </button>
+          <button class="icon-button" type="button" data-action="open-menu" aria-label="เปิดเมนูเพิ่มเติม"><span aria-hidden="true">☰</span></button>
+        </div>
+      </header>
+
+      <main id="main-content" tabindex="-1">
+        <section id="page-home" class="page is-active" aria-labelledby="home-title"></section>
+        <section id="page-map" class="page" aria-labelledby="map-title" hidden></section>
+        <section id="page-alerts" class="page" aria-labelledby="alerts-title" hidden></section>
+        <section id="page-emergency" class="page" aria-labelledby="emergency-title" hidden></section>
+        <section id="page-more" class="page" aria-labelledby="more-title" hidden></section>
+      </main>
+
+      <nav class="bottom-nav" aria-label="เมนูหลัก">
+        <button class="nav-item is-active" type="button" data-action="navigate" data-page="home" aria-current="page"><span aria-hidden="true">⌂</span><span>หน้าหลัก</span></button>
+        <button class="nav-item" type="button" data-action="navigate" data-page="map"><span aria-hidden="true">⌖</span><span>แผนที่</span></button>
+        <button class="nav-item" type="button" data-action="navigate" data-page="alerts"><span aria-hidden="true">◔</span><span>แจ้งเตือน</span></button>
+        <button class="nav-item emergency-nav" type="button" data-action="navigate" data-page="emergency"><span aria-hidden="true">SOS</span><span>ช่วยเหลือ</span></button>
+        <button class="nav-item" type="button" data-action="navigate" data-page="more"><span aria-hidden="true">•••</span><span>เพิ่มเติม</span></button>
+      </nav>
+    </div>
+
+    <div id="modal-root" aria-live="polite"></div>
+    <div id="toast-root" class="toast-root" aria-live="polite" aria-atomic="true"></div>
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>

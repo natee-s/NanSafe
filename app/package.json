@@ -1,0 +1,10 @@
+{
+  "name": "nansafe-demo",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Mobile-first disaster safety demo for Nan Province",
+  "scripts": {
+    "start": "node server.js",
+    "serve": "node server.js"
+  }
+}
