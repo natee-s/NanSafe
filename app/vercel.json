@@ -1,23 +1,37 @@
 {
-  "$schema": "https://openapi.vercel.sh/vercel.json",
-  "rewrites": [
+  "version": 2,
+  "builds": [
     {
-      "source": "/live-waterlevel",
-      "destination": "https://api-v3.thaiwater.net/api/v1/thaiwater30/public/waterlevel_load"
+      "src": "**/*",
+      "use": "@vercel/static"
+    }
+  ],
+  "routes": [
+    {
+      "src": "/live-waterlevel",
+      "dest": "https://api-v3.thaiwater.net/api/v1/thaiwater30/public/waterlevel_load"
     },
     {
-      "source": "/live-waterlevel-history/:id",
-      "destination": "https://api-v3.thaiwater.net/api/v1/thaiwater30/iframe/waterlevel_graph?station_type=tele_waterlevel&id=:id"
+      "src": "/live-waterlevel-history/(\\d+)",
+      "dest": "https://api-v3.thaiwater.net/api/v1/thaiwater30/iframe/waterlevel_graph?station_type=tele_waterlevel&id=$1"
+    },
+    {
+      "src": "/data/(.*)",
+      "dest": "/data/$1"
+    },
+    {
+      "src": "/(.*\\.(?:css|js|json|webmanifest|ico|svg|png|jpg|jpeg|gif|txt))",
+      "dest": "/$1"
+    },
+    {
+      "src": "/(.*)",
+      "dest": "/index.html"
     }
   ],
   "headers": [
     {
       "source": "/sw.js",
       "headers": [{ "key": "Cache-Control", "value": "no-cache" }]
-    },
-    {
-      "source": "/api/:path*",
-      "headers": [{ "key": "Cache-Control", "value": "s-maxage=60, stale-while-revalidate=300" }]
     }
   ]
 }
