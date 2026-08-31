@@ -1,4 +1,25 @@
 const APP_NAME = 'NanSafe';
+const WATER_DATA_ENDPOINT = '/api/waterlevel?province=55';
+const WATER_DATA_SOURCE = 'https://nan.thaiwater.net/wl';
+const WATER_REFRESH_MS = 5 * 60 * 1000;
+
+function readStorage(key, fallback = '') {
+  try {
+    return typeof window !== 'undefined' && window.localStorage
+      ? window.localStorage.getItem(key) ?? fallback
+      : fallback;
+  } catch (error) {
+    return fallback;
+  }
+}
+
+function writeStorage(key, value) {
+  try {
+    if (typeof window !== 'undefined' && window.localStorage) window.localStorage.setItem(key, value);
+  } catch (error) {
+    // Private browsing and restricted storage should not prevent the app from rendering.
+  }
+}
 
 const scenarios = [
   {
@@ -60,13 +81,19 @@ const scenarios = [
 
 const state = {
   page: 'home',
-  scenarioIndex: Number(localStorage.getItem('nansafe-scenario') || 1),
-  mapLayers: { river: true, flood: true, stations: true, safe: true, route: true },
+  scenarioIndex: Number(readStorage('nansafe-scenario', '1')),
+  mapLayers: { districts: true, river: true, flood: true, stations: true, safe: true, route: true },
   alertFilter: 'all',
   boundary: null,
+  districts: [],
+  waterData: [],
+  waterLoading: true,
+  waterError: '',
+  waterUpdatedAt: null,
+  waterSource: WATER_DATA_SOURCE,
   position: null,
   area: 'อ.ปัว จ.น่าน',
-  checklist: JSON.parse(localStorage.getItem('nansafe-checklist') || '{}')
+  checklist: JSON.parse(readStorage('nansafe-checklist', '{}') || '{}')
 };
 
 const $ = (selector, root = document) => root.querySelector(selector);
@@ -90,7 +117,73 @@ function scenarioName(key) {
 }
 
 function demoStrip() {
-  return `<div class="demo-strip" role="status"><span class="demo-dot" aria-hidden="true"></span><span><strong>โหมดสาธิต</strong> ข้อมูลสถานี พื้นที่น้ำท่วม และการแจ้งเตือนในต้นแบบนี้เป็นข้อมูลจำลอง เพื่อแสดงการทำงานของระบบ</span></div>`;
+  if (state.waterData.length && !state.waterError) {
+    return `<div class="demo-strip live-strip" role="status"><span class="demo-dot live-dot" aria-hidden="true"></span><span><strong>ข้อมูลระดับน้ำสด</strong> เชื่อมต่อ ThaiWater แล้ว · อัปเดต ${escapeHTML(formatWaterTime(state.waterUpdatedAt))} · <a href="${WATER_DATA_SOURCE}" target="_blank" rel="noreferrer">ดูแหล่งข้อมูล</a></span></div>`;
+  }
+  return `<div class="demo-strip" role="status"><span class="demo-dot" aria-hidden="true"></span><span><strong>โหมดสาธิต</strong> ${state.waterError ? 'เชื่อมข้อมูลสดไม่ได้ชั่วคราว จึงแสดงข้อมูลสำรองเพื่อให้แอปใช้งานต่อได้' : 'กำลังเชื่อมต่อข้อมูลระดับน้ำจริง'} </span></div>`;
+}
+
+function formatWaterTime(value) {
+  if (!value) return 'กำลังโหลด';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return String(value);
+  return new Intl.DateTimeFormat('th-TH', { dateStyle: 'medium', timeStyle: 'short' }).format(date);
+}
+
+function numberValue(value) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function stationName(record) {
+  return record?.station?.tele_station_name?.th || record?.station?.tele_station_name?.en || 'สถานีวัดระดับน้ำ';
+}
+
+function stationLevel(record) {
+  return numberValue(record?.waterlevel_msl ?? record?.waterlevel_m);
+}
+
+function stationBank(record) {
+  return numberValue(record?.station?.min_bank);
+}
+
+function stationGround(record) {
+  return numberValue(record?.station?.ground_level);
+}
+
+function stationGap(record) {
+  const level = stationLevel(record);
+  const bank = stationBank(record);
+  return level !== null && bank !== null ? bank - level : numberValue(record?.diff_wl_bank);
+}
+
+function stationTrend(record) {
+  const level = stationLevel(record);
+  const previous = numberValue(record?.waterlevel_msl_previous);
+  const delta = level !== null && previous !== null ? level - previous : null;
+  if (delta === null || Math.abs(delta) < 0.005) return { key: 'steady', label: 'ทรงตัว', delta: 0, icon: '→' };
+  return delta > 0
+    ? { key: 'up', label: 'เพิ่มขึ้น', delta, icon: '↗' }
+    : { key: 'down', label: 'ลดลง', delta, icon: '↘' };
+}
+
+function stationStatus(record) {
+  const level = stationLevel(record);
+  const bank = stationBank(record);
+  const gap = stationGap(record);
+  if (level !== null && bank !== null && level >= bank) return { key: 'danger', label: 'น้ำล้นตลิ่ง' };
+  if (gap !== null && gap <= 0.5) return { key: 'danger', label: 'ใกล้ล้นตลิ่ง' };
+  if (gap !== null && gap <= 1.5) return { key: 'prepare', label: 'น้ำมาก' };
+  if (gap !== null && gap <= 3) return { key: 'watch', label: 'เฝ้าระวัง' };
+  return { key: 'normal', label: 'น้ำปกติ' };
+}
+
+function primaryWaterStation() {
+  return state.waterData.find(record => stationName(record).includes('น้ำขว้าง') || record?.geocode?.amphoe_name?.th === 'ปัว') || state.waterData[0] || null;
+}
+
+function liveWaterRecords() {
+  return state.waterData.length ? state.waterData : [];
 }
 
 function homeTemplate() {
@@ -155,12 +248,37 @@ function nearbyItem(icon, title, text, status, statusType) {
 
 function waterCard() {
   const s = activeScenario();
-  const chipClass = s.key === 'normal' ? 'style="background:var(--green-soft);color:var(--green)"' : s.key === 'watch' ? 'style="background:var(--yellow-soft);color:var(--yellow)"' : s.key === 'prepare' ? 'style="background:var(--orange-soft);color:var(--orange)"' : s.key === 'danger' ? 'style="background:var(--red-soft);color:var(--red)"' : 'style="background:var(--purple-soft);color:var(--purple)"';
+  const record = primaryWaterStation();
+  if (!record) {
+    return `<article class="card water-card"><div class="water-header"><div><h3>💧 สถานีวัดระดับน้ำจังหวัดน่าน</h3><p>กำลังโหลดข้อมูลจาก ThaiWater…</p></div><span class="station-chip">กำลังโหลด</span></div><div class="loading-line" aria-label="กำลังโหลดข้อมูล"></div><p class="helper">หากเชื่อมต่อไม่ได้ ระบบจะแสดงข้อมูลสำรองและลองใหม่อัตโนมัติ</p></article>`;
+  }
+  const level = stationLevel(record) ?? s.water;
+  const bank = stationBank(record);
+  const gap = stationGap(record);
+  const ground = stationGround(record);
+  const trend = stationTrend(record);
+  const status = stationStatus(record);
+  const progress = bank !== null && ground !== null && bank > ground ? Math.max(3, Math.min(100, ((level - ground) / (bank - ground)) * 100)) : Math.max(3, Math.min(100, level / 300 * 100));
+  const chipClass = status.key === 'normal' ? 'style="background:var(--green-soft);color:var(--green)"' : status.key === 'watch' ? 'style="background:var(--yellow-soft);color:var(--yellow)"' : status.key === 'prepare' ? 'style="background:var(--orange-soft);color:var(--orange)"' : 'style="background:var(--red-soft);color:var(--red)"';
+  const gapText = gap === null ? 'ไม่ทราบระยะถึงตลิ่ง' : gap >= 0 ? `เหลืออีก ${gap.toFixed(2)} ม. ถึงตลิ่ง` : `เกินตลิ่ง ${Math.abs(gap).toFixed(2)} ม.`;
   return `<article class="card water-card">
-    <div class="water-header"><div><h3>💧 แม่น้ำน่าน — ปัว</h3><p>สถานีจำลอง WL-NAN-001 · ข้อมูล ${nowText()}</p></div><span class="station-chip" ${chipClass}>${s.waterStatus}</span></div>
-    <div class="water-figure"><div><div class="water-number">${s.water.toFixed(2)} <span>ม.</span></div><div class="water-trend">↗ ${s.rise} ใน 30 นาที</div></div><div class="gauge-wrap" style="flex:1"><div class="gauge" style="--gauge-position:${s.gauge}"></div><div class="gauge-labels"><span>ปกติ</span><span>เฝ้าระวัง</span><span>เสี่ยงน้ำท่วม</span></div></div></div>
-    <div style="margin-top:14px"><button type="button" class="button button-outline button-small" data-action="show-station">ดูระดับน้ำเทียบเกณฑ์และประวัติ</button></div>
+    <div class="water-header"><div><h3>💧 ${escapeHTML(stationName(record))}</h3><p>${escapeHTML(record?.geocode?.amphoe_name?.th ? `ต.${record.geocode.tumbon_name?.th || '-'} อ.${record.geocode.amphoe_name.th} จ.น่าน` : 'จังหวัดน่าน')} · ${escapeHTML(record?.river_name || 'ลำน้ำ')}</p></div><span class="station-chip" ${chipClass}>${status.label}</span></div>
+    <div class="water-figure"><div><div class="water-number">${level.toFixed(2)} <span>ม.รทก.</span></div><div class="water-trend trend-${trend.key}">${trend.icon} ${trend.label} ${Math.abs(trend.delta).toFixed(2)} ม.</div></div><div class="gauge-wrap" style="flex:1"><div class="gauge live-gauge" style="--gauge-position:${progress}%"></div><div class="gauge-labels"><span>ระดับพื้นน้ำ</span><span>ระดับปัจจุบัน</span><span>ตลิ่ง</span></div></div></div>
+    <div class="water-gap"><strong>${escapeHTML(gapText)}</strong>${bank !== null ? `<span>ตลิ่ง ${bank.toFixed(2)} ม.รทก.</span>` : ''}</div>
+    <div class="water-source-line"><span>อัปเดต ${escapeHTML(formatWaterTime(record.waterlevel_datetime || state.waterUpdatedAt))}</span><span>ทั้งหมด ${state.waterData.length} สถานี</span></div>
+    <div style="margin-top:14px"><button type="button" class="button button-outline button-small" data-action="show-station">ดูระดับน้ำเทียบตลิ่งและแนวโน้ม</button></div>
   </article>`;
+}
+
+function stationList() {
+  if (!state.waterData.length) return '<article class="card station-list-empty"><p>กำลังโหลดสถานีจาก ThaiWater…</p></article>';
+  return `<div class="card station-list">${state.waterData.map(record => {
+    const status = stationStatus(record);
+    const trend = stationTrend(record);
+    const level = stationLevel(record);
+    const gap = stationGap(record);
+    return `<button type="button" class="station-list-row" data-action="show-station" data-station-id="${record.station?.id || ''}"><span class="station-list-icon status-${status.key}">💧</span><span class="station-list-main"><strong>${escapeHTML(stationName(record))}</strong><small>อ.${escapeHTML(record?.geocode?.amphoe_name?.th || '-')} · ${escapeHTML(record?.river_name || 'ลำน้ำ')}</small></span><span class="station-list-value"><strong>${level === null ? '-' : level.toFixed(2)} ม.</strong><small class="trend-${trend.key}">${trend.icon} ${trend.label}${gap === null ? '' : ` · ถึงตลิ่ง ${gap.toFixed(2)} ม.`}</small></span><span class="station-list-chevron">›</span></button>`;
+  }).join('')}</div>`;
 }
 
 function mapTemplate() {
@@ -181,7 +299,9 @@ function mapTemplate() {
         <div class="map-tools-bottom"><button class="map-round-button" type="button" data-action="open-layers" aria-label="เปิดชั้นข้อมูล">☷</button><button class="map-round-button" type="button" data-action="use-location" aria-label="ใช้ตำแหน่งของฉัน">⌖</button></div>
       </div>
     </section>
+    <section class="section"><div class="section-title-row"><h2 class="section-title">สถานีวัดระดับน้ำในจังหวัดน่าน</h2><span class="live-count">${state.waterData.length ? `สด ${state.waterData.length} สถานี` : 'กำลังโหลด'}</span></div>${stationList()}</section>
     <section class="section"><article class="card layer-panel"><h2>สิ่งที่แสดงบนแผนที่</h2><div class="layer-options">
+      ${layerRow('districts', '▦', 'ขอบเขตอำเภอ', `${state.districts.length || 15} อำเภอของน่าน`)}
       ${layerRow('river', '~~~', 'แม่น้ำและลำน้ำ', 'แนวลำน้ำ')}
       ${layerRow('flood', '◒', 'พื้นที่น้ำท่วม', s.flood ? 'ข้อมูลจำลอง' : 'ไม่มีพื้นที่แสดง')}
       ${layerRow('stations', '●', 'สถานีวัดน้ำ', 'แตะเพื่อดูข้อมูล')}
@@ -219,11 +339,14 @@ function alertFilter(key, label) {
 
 function currentAlerts() {
   const s = activeScenario();
+  const station = primaryWaterStation();
+  const stationLevelText = station && stationLevel(station) !== null ? stationLevel(station).toFixed(2) : s.water.toFixed(2);
+  const stationTrendText = station ? `${stationTrend(station).label} ${Math.abs(stationTrend(station).delta).toFixed(2)} ม.` : `${s.rise} ใน 30 นาที`;
   const base = [
     { type: 'weather', risk: s.key === 'normal' ? 'normal' : 'watch', symbol: '🌧️', title: s.key === 'normal' ? 'สภาพอากาศทั่วไป' : 'ฝนตกหนักในพื้นที่ต้นน้ำ', text: s.key === 'normal' ? 'ยังไม่มีประกาศเฝ้าระวังในพื้นที่ที่คุณเลือก' : 'มีฝนตกหนักในพื้นที่ต้นน้ำ โปรดติดตามสถานการณ์อย่างใกล้ชิด', time: 'วันนี้ · 18:35 น.', action: 'navigate-map', actionText: 'ดูบนแผนที่' },
     { type: 'risk', risk: s.key, symbol: s.alertSymbol, title: s.alertTitle, text: s.alertText, time: `วันนี้ · ${nowText()}`, action: s.key === 'normal' ? 'open-preparedness' : 'open-route', actionText: s.key === 'normal' ? 'ดูวิธีเตรียมตัว' : 'ดูเส้นทางปลอดภัย' },
     { type: 'community', risk: s.flood ? 'danger' : 'watch', symbol: '📸', title: s.flood ? 'รายงานชุมชน: น้ำท่วมขังในพื้นที่เฝ้าระวัง' : 'รายงานชุมชน: ฝนตกต่อเนื่อง', text: s.flood ? 'รายงานนี้อยู่ระหว่างการตรวจสอบร่วมกับข้อมูลสถานีตรวจวัด' : 'ข้อมูลรายงานจากประชาชนยังไม่ใช่ประกาศทางการ', time: 'วันนี้ · 18:21 น.', action: 'open-report', actionText: 'แจ้งเหตุในพื้นที่' },
-    { type: 'risk', risk: 'watch', symbol: '💧', title: 'สถานีวัดระดับน้ำ — ปัว', text: `ระดับน้ำ ${s.water.toFixed(2)} ม. แนวโน้ม ${s.rise} ใน 30 นาที`, time: 'วันนี้ · 18:10 น.', action: 'show-station', actionText: 'ดูข้อมูลสถานี' }
+    { type: 'risk', risk: station ? stationStatus(station).key : 'watch', symbol: '💧', title: station ? `สถานีวัดระดับน้ำ — ${stationName(station)}` : 'สถานีวัดระดับน้ำ — ปัว', text: `ระดับน้ำ ${stationLevelText} ม. แนวโน้ม ${stationTrendText}`, time: station ? formatWaterTime(station.waterlevel_datetime) : 'วันนี้ · 18:10 น.', action: 'show-station', actionText: 'ดูข้อมูลสถานี' }
   ];
   return base;
 }
@@ -276,6 +399,34 @@ function checkRow(key, label) {
   return `<div class="check-row"><input id="check-${key}" type="checkbox" data-action="checklist" data-key="${key}" ${state.checklist[key] ? 'checked' : ''}><label for="check-${key}">${label}</label></div>`;
 }
 
+function districtLayer() {
+  if (!state.districts.length) return '';
+  const colors = ['#d5efbf', '#c9e8b5', '#dff1c8', '#c3e4b3', '#e9f2bd', '#c7e7c1'];
+  return state.districts.map((district, index) => `<g class="district-shape"><path d="${district.path}" fill="${colors[index % colors.length]}" stroke="#7ca57b" stroke-width="1.8" stroke-linejoin="round"/><text x="${district.centroid.x.toFixed(1)}" y="${district.centroid.y.toFixed(1)}" text-anchor="middle" class="district-label">อ.${escapeHTML(district.name)}</text></g>`).join('');
+}
+
+function liveStationMarkers() {
+  const markers = liveWaterRecords().map(record => {
+    const lat = numberValue(record?.station?.tele_station_lat);
+    const lon = numberValue(record?.station?.tele_station_long);
+    if (lat === null || lon === null || !state.boundary?.bounds) return '';
+    const point = projectPoint(lon, lat);
+    const status = stationStatus(record);
+    const color = status.key === 'normal' ? '#1a8a61' : status.key === 'watch' ? '#e0a11b' : status.key === 'prepare' ? '#db7431' : '#c33b4b';
+    return stationMarker(point.x, point.y, stationName(record), color, '💧', 'show-station', record.station.id);
+  }).join('');
+  return markers || stationMarker(308, 412, 'สถานีปัว', '#faab24', '💧', 'show-station');
+}
+
+function projectPoint(lon, lat) {
+  const bounds = state.boundary?.bounds;
+  if (!bounds) return { x: 308, y: 412 };
+  return {
+    x: bounds.xOffset + (lon - bounds.minLon) * bounds.scale,
+    y: bounds.yOffset + (bounds.maxLat - lat) * bounds.scale
+  };
+}
+
 function mapSvg({ compact }) {
   const s = activeScenario();
   const viewBox = '0 0 600 760';
@@ -283,32 +434,35 @@ function mapSvg({ compact }) {
   const layerClass = layer => state.mapLayers[layer] ? '' : 'is-off';
   const floodVisible = s.flood ? '' : 'is-off';
   const compactClass = compact ? 'map-compact' : 'map-full';
-  return `<svg class="map-svg ${compactClass}" viewBox="${viewBox}" role="img" aria-label="แผนที่จังหวัดน่านแสดงข้อมูลจำลองด้านสาธารณภัย">
+  return `<svg class="map-svg ${compactClass}" viewBox="${viewBox}" role="img" aria-label="แผนที่จังหวัดน่านแสดงขอบเขต 15 อำเภอ จุดวัดระดับน้ำ และสถานการณ์น้ำ">
     <defs>
       <linearGradient id="flood-fill" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#54aee9" stop-opacity=".70"/><stop offset="1" stop-color="#1879ca" stop-opacity=".82"/></linearGradient>
       <filter id="soft-shadow"><feDropShadow dx="0" dy="4" stdDeviation="4" flood-color="#10434a" flood-opacity=".22"/></filter>
     </defs>
     <rect width="600" height="760" fill="#d8edf3"/>
     <path d="M0 110 C110 70 165 130 260 100 S455 80 600 125 M0 260 C100 230 155 280 255 240 S470 240 600 275 M0 420 C120 380 205 445 320 405 S490 430 600 400 M0 600 C105 560 170 620 275 580 S470 590 600 550" fill="none" stroke="#c4dfdc" stroke-width="19" opacity=".8"/>
-    <path d="${borderPath}" fill="#b7dfc1" stroke="#145a52" stroke-width="7" stroke-linejoin="round"/>
+    <path d="${borderPath}" fill="#eaf5d9" stroke="#145a52" stroke-width="7" stroke-linejoin="round"/>
+    <g class="map-layer districts ${layerClass('districts')}">${districtLayer()}</g>
     <g class="map-layer river ${layerClass('river')}"><path d="M315 100 C295 152 340 199 307 244 C275 288 334 331 311 374 C287 420 336 462 306 506 C279 548 326 600 298 668" fill="none" stroke="#2288c7" stroke-width="11" opacity=".85" stroke-linecap="round"/><path d="M311 254 C238 280 227 314 196 350 M313 374 C381 410 402 448 449 479 M304 510 C240 535 233 570 195 600" fill="none" stroke="#54aee9" stroke-width="6" opacity=".78" stroke-linecap="round"/></g>
     <g class="map-layer risk ${s.key === 'danger' || s.key === 'evacuate' ? '' : 'is-off'}"><path d="M205 414 C245 374 350 380 400 423 C425 447 406 506 343 524 C276 543 199 495 205 414Z" fill="#d24f5c" opacity=".23" stroke="#b33035" stroke-width="2" stroke-dasharray="7 6"/></g>
     <g class="map-layer flood ${layerClass('flood')} ${floodVisible}"><path d="M250 433 C290 402 366 414 389 451 C405 476 373 516 318 516 C268 514 224 477 250 433Z" fill="url(#flood-fill)" stroke="#1879ca" stroke-width="2" opacity=".91"/><path d="M268 457 C292 441 335 441 367 462" fill="none" stroke="#d8f3ff" stroke-width="3" opacity=".8"/><path d="M265 480 C301 465 342 470 371 488" fill="none" stroke="#d8f3ff" stroke-width="3" opacity=".8"/></g>
     <g class="map-layer route ${layerClass('route')}"><path d="M303 503 C352 542 390 551 442 587" fill="none" stroke="#fff" stroke-width="11" stroke-linecap="round"/><path d="M303 503 C352 542 390 551 442 587" fill="none" stroke="#6b438b" stroke-width="5" stroke-dasharray="9 7" stroke-linecap="round"/></g>
-    <g class="map-layer stations ${layerClass('stations')}">${stationMarker(308, 412, 'สถานีปัว', '#faab24', '💧')}${stationMarker(271, 286, 'สถานีบ่อเกลือ', '#faab24', '💧')}${stationMarker(328, 571, 'สถานีเวียงสา', '#faab24', '💧')}</g>
-    <g class="map-layer safe ${layerClass('safe')}">${stationMarker(445, 588, 'จุดปลอดภัย', '#238360', '◆')}${stationMarker(210, 570, 'จุดรวมพล', '#238360', '◆')}</g>
+    <g class="map-layer stations ${layerClass('stations')}">${liveStationMarkers()}</g>
+    <g class="map-layer safe ${layerClass('safe')}">${stationMarker(445, 588, 'จุดปลอดภัย', '#238360', '◆', 'open-route')}${stationMarker(210, 570, 'จุดรวมพล', '#238360', '◆', 'open-route')}</g>
     <g class="map-marker" aria-hidden="true"><circle cx="302" cy="500" r="14" fill="#07505d" stroke="#fff" stroke-width="5"/><circle cx="302" cy="500" r="24" fill="#07505d" opacity=".15"/><text x="321" y="506" font-size="15">คุณอยู่ที่นี่</text></g>
     <text x="306" y="198" text-anchor="middle" font-size="22" font-weight="800" fill="#2c6f62" opacity=".9">จังหวัดน่าน</text>
     <text x="460" y="728" text-anchor="end" font-size="10" fill="#4a6d73">ขอบเขตจังหวัด: DDPM · ชั้นข้อมูลสถานการณ์: สาธิต</text>
   </svg>`;
 }
 
-function stationMarker(x, y, label, color, symbol) {
-  return `<g class="map-marker" aria-hidden="true"><circle cx="${x}" cy="${y}" r="15" fill="${color}" stroke="#fff" stroke-width="4"/><text x="${x}" y="${y + 5}" text-anchor="middle" font-size="13" stroke-width="0" fill="#fff">${symbol}</text><text x="${x + 20}" y="${y - 15}" font-size="13">${label}</text></g>`;
+function stationMarker(x, y, label, color, symbol, action = '', stationId = '') {
+  const actionAttrs = action ? `data-action="${action}" ${stationId ? `data-station-id="${stationId}"` : ''} tabindex="0" role="button"` : 'aria-hidden="true"';
+  return `<g class="map-marker ${action ? 'is-interactive' : ''}" ${actionAttrs} aria-label="${escapeHTML(label)}"><circle cx="${x.toFixed ? x.toFixed(1) : x}" cy="${y.toFixed ? y.toFixed(1) : y}" r="${action === 'show-station' ? 10 : 15}" fill="${color}" stroke="#fff" stroke-width="3"/><text x="${x}" y="${y + 5}" text-anchor="middle" font-size="11" stroke-width="0" fill="#fff">${symbol}</text><text x="${Number(x) + 14}" y="${Number(y) - 9}" font-size="${action === 'show-station' ? 9 : 13}">${escapeHTML(label)}</text></g>`;
 }
 
 function mapOverlayControls({ compact }) {
-  return `<div class="map-overlay-actions ${compact ? 'is-compact' : ''}" aria-label="จุดข้อมูลบนแผนที่"><button class="map-overlay-button station" type="button" data-action="show-station">💧 <span>สถานีปัว</span></button><button class="map-overlay-button safe" type="button" data-action="open-route">◆ <span>จุดปลอดภัย</span></button><button class="map-overlay-button user" type="button" data-action="use-location" aria-label="ใช้ตำแหน่งของฉัน">⌖</button></div>`;
+  const primary = primaryWaterStation();
+  return `<div class="map-overlay-actions ${compact ? 'is-compact' : ''}" aria-label="จุดข้อมูลบนแผนที่"><button class="map-overlay-button station" type="button" data-action="show-station" ${primary?.station?.id ? `data-station-id="${primary.station.id}"` : ''}>💧 <span>${escapeHTML(primary ? stationName(primary) : 'สถานีวัดน้ำ')}</span></button><button class="map-overlay-button safe" type="button" data-action="open-route">◆ <span>จุดปลอดภัย</span></button><button class="map-overlay-button user" type="button" data-action="use-location" aria-label="ใช้ตำแหน่งของฉัน">⌖</button></div>`;
 }
 
 function fallbackBoundaryPath() {
@@ -335,7 +489,7 @@ function navigate(page) {
 
 function setScenario(index) {
   state.scenarioIndex = Number(index) % scenarios.length;
-  localStorage.setItem('nansafe-scenario', String(state.scenarioIndex));
+  writeStorage('nansafe-scenario', String(state.scenarioIndex));
   render();
   const s = activeScenario();
   toast(`เปลี่ยนสถานการณ์สาธิตเป็น “${s.label}”`, s.key === 'danger' || s.key === 'evacuate' ? 'danger' : s.key === 'normal' ? '' : 'warning');
@@ -364,40 +518,76 @@ function closeModal() { $('#modal-root').innerHTML = ''; }
 
 function stationModal() {
   const s = activeScenario();
-  const current = Math.min(95, Math.max(10, Math.round(s.water / 4 * 100)));
+  const record = state.waterData.find(item => String(item?.station?.id) === String(state.selectedStationId)) || primaryWaterStation();
+  if (!record) {
+    openModal({ title: '💧 ข้อมูลสถานีวัดน้ำ', description: 'กำลังเชื่อมต่อข้อมูลจาก ThaiWater', body: '<div class="loading-line"></div><p class="helper">ลองใหม่อีกครั้งในอีกสักครู่</p>', footer: '<button type="button" class="button button-outline" data-action="close-modal">ปิด</button>' });
+    return;
+  }
+  const level = stationLevel(record) ?? s.water;
+  const bank = stationBank(record);
+  const ground = stationGround(record);
+  const gap = stationGap(record);
+  const trend = stationTrend(record);
+  const status = stationStatus(record);
+  const previous = numberValue(record.waterlevel_msl_previous);
+  const currentPercent = bank !== null && ground !== null && bank > ground ? Math.max(0, Math.min(100, ((level - ground) / (bank - ground)) * 100)) : 0;
+  state.selectedStationId = record.station?.id;
   openModal({
-    title: '💧 สถานีวัดระดับน้ำ — ปัว',
-    description: 'สถานีจำลอง WL-NAN-001 · แม่น้ำน่าน · อัปเดต ' + nowText(),
+    title: '💧 ' + escapeHTML(stationName(record)),
+    description: `${escapeHTML(record?.geocode?.tumbon_name?.th ? `ต.${record.geocode.tumbon_name.th} อ.${record.geocode.amphoe_name?.th || '-'}` : 'จังหวัดน่าน')} · ${escapeHTML(record?.river_name || 'ลำน้ำ')} · อัปเดต ${escapeHTML(formatWaterTime(record.waterlevel_datetime))}`,
     body: `<div class="station-detail">
-      <div class="metric-row"><div class="metric"><span>ระดับน้ำปัจจุบัน</span><strong>${s.water.toFixed(2)} ม.</strong></div><div class="metric"><span>เพิ่มขึ้น</span><strong>↗ ${s.rise}</strong></div><div class="metric"><span>สถานะ</span><strong>${s.waterStatus}</strong></div></div>
-      <div><div class="gauge" style="--gauge-position:${s.gauge}"></div><div class="gauge-labels"><span>ปกติ 1.80 ม.</span><span>เฝ้าระวัง 2.50 ม.</span><span>เสี่ยงน้ำท่วม 3.50 ม.</span></div></div>
+      <div class="metric-row"><div class="metric"><span>ระดับน้ำตอนนี้</span><strong>${level.toFixed(2)} ม.</strong></div><div class="metric"><span>แนวโน้มล่าสุด</span><strong class="trend-value trend-${trend.key}">${trend.icon} ${trend.label}</strong></div><div class="metric"><span>สถานะ</span><strong>${status.label}</strong></div></div>
+      <div class="bank-meter"><div class="bank-meter-head"><strong>${gap === null ? 'ไม่ทราบระยะถึงตลิ่ง' : gap >= 0 ? `เหลือ ${gap.toFixed(2)} ม. ก่อนถึงตลิ่ง` : `เกินตลิ่ง ${Math.abs(gap).toFixed(2)} ม.`}</strong><span>${bank === null ? '' : `ตลิ่ง ${bank.toFixed(2)} ม.`}</span></div><div class="gauge live-gauge" style="--gauge-position:${currentPercent}%"></div><div class="gauge-labels"><span>${ground === null ? 'ระดับฐาน' : `พื้นน้ำ ${ground.toFixed(2)} ม.`}</span><span>ระดับปัจจุบัน</span><span>ตลิ่ง</span></div></div>
       <div class="history-compare"><h3>เทียบระดับน้ำเพื่อให้เข้าใจง่าย</h3>
-        ${compareLine('ระดับปกติ', '1.80 ม.', '45%', '#238360')}
-        ${compareLine('เริ่มเฝ้าระวัง', '2.50 ม.', '63%', '#c9850a')}
-        ${compareLine('ปัจจุบัน', s.water.toFixed(2) + ' ม.', current + '%', s.key === 'danger' || s.key === 'evacuate' ? '#b33035' : '#b95306')}
-        ${compareLine('น้ำท่วมในอดีต', '3.52 ม.', '88%', '#693e93')}
+        ${ground === null ? '' : compareLine('ระดับท้องน้ำ', ground.toFixed(2) + ' ม.', '20%', '#668f96')}
+        ${previous === null ? '' : compareLine('ครั้งก่อน', previous.toFixed(2) + ' ม.', Math.max(10, Math.min(90, currentPercent - (level - previous) * 20)) + '%', '#6b438b')}
+        ${compareLine('ปัจจุบัน', level.toFixed(2) + ' ม.', Math.max(10, currentPercent) + '%', status.key === 'danger' ? '#b33035' : '#b95306')}
+        ${bank === null ? '' : compareLine('ระดับตลิ่ง', bank.toFixed(2) + ' ม.', '100%', '#cf5b62')}
       </div>
-      <div class="chart-box"><h3>แนวโน้มระดับน้ำ 6 ชั่วโมง</h3>${waterChart(s)}</div>
-      <p class="helper">ข้อมูลในต้นแบบนี้เป็นข้อมูลจำลอง การใช้งานจริงต้องแสดงผู้ให้ข้อมูล เวลาอัปเดต และสถานะการทำงานของสถานีอย่างชัดเจน</p>
+      <div class="chart-box"><h3>แนวโน้มระดับน้ำย้อนหลัง</h3><div id="station-history"><div class="loading-line"></div><p class="helper">กำลังโหลดกราฟจาก ThaiWater…</p></div></div>
+      <p class="helper">แหล่งข้อมูล: ThaiWater / ${escapeHTML(record?.agency?.agency_shortname?.th || record?.agency?.agency_name?.th || '-')} · ม.รทก. คือระดับความสูงอ้างอิงจากระดับน้ำทะเลปานกลาง</p>
     </div>`,
     footer: `<button type="button" class="button button-outline" data-action="close-modal">ปิด</button>`
   });
+  loadStationHistory(record);
 }
 
 function compareLine(label, value, width, color) {
   return `<div class="compare-line"><span>${label}</span><span class="compare-track" style="--compare:${width};--compare-color:${color}"></span><span class="compare-value">${value}</span></div>`;
 }
 
-function waterChart(s) {
-  const base = [1.78, 1.82, 1.91, 2.03, 2.20, 2.31, s.water];
-  const max = 4, min = 1.4, width = 380, height = 150, pad = 22;
-  const points = base.map((value, i) => {
-    const x = pad + (i * (width - pad * 2)) / (base.length - 1);
-    const y = height - pad - ((value - min) / (max - min)) * (height - pad * 2);
+async function loadStationHistory(record) {
+  const target = $('#station-history');
+  if (!target || !record?.station?.id) return;
+  try {
+    const response = await fetch(`/api/waterlevel-history?id=${encodeURIComponent(record.station.id)}`, { cache: 'no-store' });
+    if (!response.ok) throw new Error('History unavailable');
+    const payload = await response.json();
+    target.innerHTML = waterHistoryChart(record, payload.data || []);
+  } catch (error) {
+    target.innerHTML = '<p class="helper">ยังโหลดกราฟย้อนหลังไม่ได้ แต่ค่า ณ ตอนนี้และแนวโน้มล่าสุดยังอ้างอิงข้อมูลสดได้</p>';
+  }
+}
+
+function waterHistoryChart(record, data) {
+  const samples = (Array.isArray(data) ? data : []).map(item => numberValue(item.value)).filter(value => value !== null);
+  if (samples.length < 2) return '<p class="helper">ข้อมูลย้อนหลังไม่เพียงพอสำหรับวาดกราฟ</p>';
+  const bank = stationBank(record);
+  const current = stationLevel(record);
+  const values = bank === null ? samples : [...samples, bank];
+  const max = Math.max(...values) + 0.15;
+  const min = Math.min(...values) - 0.15;
+  const width = 380, height = 170, pad = 25;
+  const step = Math.max(1, Math.floor(samples.length / 42));
+  const selected = samples.filter((value, index) => index % step === 0 || index === samples.length - 1);
+  const points = selected.map((value, i) => {
+    const x = pad + (i * (width - pad * 2)) / (selected.length - 1);
+    const y = height - pad - ((value - min) / (max - min || 1)) * (height - pad * 2);
     return `${x.toFixed(1)},${y.toFixed(1)}`;
   }).join(' ');
-  const thresholdY = height - pad - ((3.5 - min) / (max - min)) * (height - pad * 2);
-  return `<svg viewBox="0 0 ${width} ${height}" role="img" aria-label="กราฟแนวโน้มระดับน้ำ 6 ชั่วโมง"><line x1="${pad}" y1="${thresholdY}" x2="${width-pad}" y2="${thresholdY}" stroke="#cf5b62" stroke-width="2" stroke-dasharray="5 4"/><text x="${width-pad}" y="${thresholdY-5}" text-anchor="end" font-size="10" fill="#9e343b">ระดับเสี่ยงน้ำท่วม 3.50 ม.</text><polyline points="${points}" fill="none" stroke="#0c7685" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/><circle cx="${points.split(' ').at(-1).split(',')[0]}" cy="${points.split(' ').at(-1).split(',')[1]}" r="5" fill="#b95306" stroke="#fff" stroke-width="2"/><text x="${pad}" y="${height-3}" font-size="10" fill="#587177">6 ชั่วโมงก่อน</text><text x="${width-pad}" y="${height-3}" text-anchor="end" font-size="10" fill="#587177">ขณะนี้</text></svg>`;
+  const thresholdY = bank === null ? null : height - pad - ((bank - min) / (max - min || 1)) * (height - pad * 2);
+  const currentPoint = points.split(' ').at(-1).split(',');
+  return `<svg viewBox="0 0 ${width} ${height}" role="img" aria-label="กราฟแนวโน้มระดับน้ำย้อนหลังจาก ThaiWater">${thresholdY === null ? '' : `<line x1="${pad}" y1="${thresholdY}" x2="${width-pad}" y2="${thresholdY}" stroke="#cf5b62" stroke-width="2" stroke-dasharray="5 4"/><text x="${width-pad}" y="${thresholdY-5}" text-anchor="end" font-size="10" fill="#9e343b">ตลิ่ง ${bank.toFixed(2)} ม.</text>`}<polyline points="${points}" fill="none" stroke="#0c7685" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/><circle cx="${currentPoint[0]}" cy="${currentPoint[1]}" r="5" fill="#b95306" stroke="#fff" stroke-width="2"/><text x="${pad}" y="${height-3}" font-size="10" fill="#587177">ย้อนหลัง</text><text x="${width-pad}" y="${height-3}" text-anchor="end" font-size="10" fill="#587177">ล่าสุด ${current?.toFixed(2) || '-'} ม.</text></svg>`;
 }
 
 function routeModal() {
@@ -415,7 +605,7 @@ function layersModal() {
   openModal({
     title: 'ชั้นข้อมูลแผนที่',
     description: 'เลือกสิ่งที่ต้องการแสดงบนแผนที่',
-    body: `<div class="layer-options">${layerRow('river', '~~~', 'แม่น้ำและลำน้ำ', 'แนวลำน้ำ')}${layerRow('flood', '◒', 'พื้นที่น้ำท่วม', 'ข้อมูลสาธิต')}${layerRow('stations', '●', 'สถานีวัดน้ำ', 'แตะดูรายละเอียด')}${layerRow('safe', '◆', 'จุดปลอดภัย', 'Safe Zone')}${layerRow('route', '↗', 'เส้นทางแนะนำ', 'หลีกเลี่ยงพื้นที่เสี่ยง')}</div>`,
+    body: `<div class="layer-options">${layerRow('districts', '▦', 'ขอบเขตอำเภอ', `${state.districts.length || 15} อำเภอของน่าน`)}${layerRow('river', '~~~', 'แม่น้ำและลำน้ำ', 'แนวลำน้ำ')}${layerRow('flood', '◒', 'พื้นที่น้ำท่วม', 'ข้อมูลสาธิต')}${layerRow('stations', '●', 'สถานีวัดน้ำ', `${state.waterData.length || 32} สถานี`)}${layerRow('safe', '◆', 'จุดปลอดภัย', 'Safe Zone')}${layerRow('route', '↗', 'เส้นทางแนะนำ', 'หลีกเลี่ยงพื้นที่เสี่ยง')}</div>`,
     footer: '<button type="button" class="button button-outline" data-action="close-modal">เสร็จสิ้น</button>',
     small: true
   });
@@ -484,7 +674,7 @@ function dataInfoModal() {
   openModal({
     title: 'เกี่ยวกับข้อมูลและความเชื่อมั่น',
     description: 'NanSafe ควรสื่อสารอย่างชัดเจนว่าข้อมูลมาจากไหน และสดใหม่เพียงใด',
-    body: `<div class="station-detail"><article class="history-compare"><h3>ข้อมูลในต้นแบบ</h3><p class="helper">• ขอบเขตจังหวัดน่าน: กรมป้องกันและบรรเทาสาธารณภัย (DDPM)<br>• ระดับน้ำ ฝน พื้นที่น้ำท่วม และ Alert: ข้อมูลจำลองเพื่อการสาธิต<br>• เส้นลำน้ำและจุดบนแผนที่: ชั้นข้อมูลประกอบการสาธิต</p></article><article class="history-compare"><h3>หลักที่ต้องใช้จริง</h3><p class="helper">ข้อมูลทุกชุดต้องแสดงแหล่งที่มา เวลาอัปเดต ความเชื่อมั่น และสถานะการตรวจสอบ โดยการประกาศทางการต้องเป็นอำนาจของหน่วยงานที่เกี่ยวข้อง</p></article></div>`,
+    body: `<div class="station-detail"><article class="history-compare"><h3>ข้อมูลที่เชื่อมต่ออยู่ตอนนี้</h3><p class="helper">• ระดับน้ำและสถานี: ThaiWater (${state.waterData.length} สถานีจังหวัดน่าน)<br>• เวลาอัปเดตล่าสุด: ${escapeHTML(formatWaterTime(state.waterUpdatedAt))}<br>• กราฟย้อนหลัง: ThaiWater station history API<br>• ขอบเขตจังหวัด: DDPM<br>• ขอบเขตอำเภอ 15 อำเภอ: OpenGISData-Thailand / UNOCHA lineage</p></article><article class="history-compare"><h3>ข้อควรรู้</h3><p class="helper">ค่าระดับตลิ่งเป็นค่าอ้างอิงของแต่ละสถานี ไม่ใช่คำยืนยันว่าบ้านทุกหลังจะเริ่มท่วมพร้อมกัน และรายงานชุมชน/ประกาศอพยพต้องผ่านการตรวจสอบจากหน่วยงานที่รับผิดชอบ</p></article></div>`,
     footer: '<button type="button" class="button button-outline" data-action="close-modal">ปิด</button>', small: true
   });
 }
@@ -532,7 +722,7 @@ function handleAction(action, element) {
     case 'navigate-emergency': closeModal(); navigate('emergency'); break;
     case 'set-scenario': setScenario(element.dataset.index); break;
     case 'toggle-layer': toggleLayer(element.dataset.layer, element.checked); break;
-    case 'show-station': stationModal(); break;
+    case 'show-station': state.selectedStationId = element.dataset.stationId || state.selectedStationId; stationModal(); break;
     case 'open-route': routeModal(); break;
     case 'open-layers': layersModal(); break;
     case 'open-menu': navigate('more'); break;
@@ -551,7 +741,7 @@ function handleAction(action, element) {
     case 'open-data-info': dataInfoModal(); break;
     case 'open-simulation': simulationModal(); break;
     case 'close-modal': closeModal(); break;
-    case 'checklist': state.checklist[element.dataset.key] = element.checked; localStorage.setItem('nansafe-checklist', JSON.stringify(state.checklist)); break;
+    case 'checklist': state.checklist[element.dataset.key] = element.checked; writeStorage('nansafe-checklist', JSON.stringify(state.checklist)); break;
     default: break;
   }
 }
@@ -583,16 +773,72 @@ async function loadBoundary() {
       const y = yOffset + (maxLat - lat) * scale;
       return `${index === 0 ? 'M' : 'L'}${x.toFixed(1)} ${y.toFixed(1)}`;
     }).join(' ') + 'Z';
-    state.boundary = { path, source: feature.properties?.source };
+    state.boundary = { path, source: feature.properties?.source, bounds: { minLon, maxLon, minLat, maxLat, scale, xOffset, yOffset } };
   } catch (error) {
     state.boundary = null;
   }
 }
 
+function geometryPath(geometry) {
+  if (!geometry || !state.boundary?.bounds) return '';
+  const polygons = geometry.type === 'Polygon' ? [geometry.coordinates] : geometry.type === 'MultiPolygon' ? geometry.coordinates : [];
+  return polygons.map(polygon => polygon.map(ring => ring.map(([lon, lat], index) => {
+    const point = projectPoint(lon, lat);
+    return `${index === 0 ? 'M' : 'L'}${point.x.toFixed(1)} ${point.y.toFixed(1)}`;
+  }).join(' ') + ' Z').join(' ')).join(' ');
+}
+
+function geometryCentroid(geometry) {
+  const points = [];
+  const polygons = geometry?.type === 'Polygon' ? geometry.coordinates : geometry?.type === 'MultiPolygon' ? geometry.coordinates.flat(1) : [];
+  polygons.forEach(ring => ring.slice(0, -1).forEach(([lon, lat]) => points.push(projectPoint(lon, lat))));
+  if (!points.length) return { x: 300, y: 380 };
+  return { x: points.reduce((sum, point) => sum + point.x, 0) / points.length, y: points.reduce((sum, point) => sum + point.y, 0) / points.length };
+}
+
+async function loadDistricts() {
+  try {
+    const response = await fetch('./data/nan-districts.json');
+    if (!response.ok) throw new Error('District boundaries unavailable');
+    const collection = await response.json();
+    state.districts = (collection.features || []).map(feature => ({
+      name: feature.properties?.amp_th || 'ไม่ทราบชื่ออำเภอ',
+      path: geometryPath(feature.geometry),
+      centroid: geometryCentroid(feature.geometry)
+    })).filter(district => district.path);
+  } catch (error) {
+    state.districts = [];
+  }
+}
+
+async function loadWaterData() {
+  state.waterLoading = true;
+  try {
+    const response = await fetch(`${WATER_DATA_ENDPOINT}&t=${Date.now()}`, { cache: 'no-store', headers: { Accept: 'application/json' } });
+    if (!response.ok) throw new Error('Water data unavailable');
+    const payload = await response.json();
+    const records = Array.isArray(payload.data) ? payload.data : [];
+    state.waterData = records.filter(record => record?.geocode?.province_code === '55' || record?.geocode?.province_code === 55);
+    state.waterUpdatedAt = payload.updatedAt || state.waterData.map(record => record.waterlevel_datetime).filter(Boolean).sort().at(-1) || null;
+    state.waterSource = payload.source || WATER_DATA_SOURCE;
+    state.waterError = state.waterData.length ? '' : 'ไม่พบข้อมูลสถานีจังหวัดน่าน';
+  } catch (error) {
+    state.waterError = 'เชื่อมข้อมูล ThaiWater ไม่สำเร็จ';
+    state.waterData = [];
+  } finally {
+    state.waterLoading = false;
+  }
+}
+
 async function init() {
   await loadBoundary();
+  await Promise.all([loadDistricts(), loadWaterData()]);
   render();
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js').catch(() => {});
+  window.setInterval(async () => {
+    await loadWaterData();
+    render();
+  }, WATER_REFRESH_MS);
 }
 
 init();
