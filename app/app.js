@@ -1,5 +1,7 @@
 const APP_NAME = 'NanSafe';
-const WATER_DATA_ENDPOINT = '/api/waterlevel?province=55';
+// Vercel proxies this same-origin path to ThaiWater. Keeping the upstream
+// request behind a rewrite avoids browser CORS and the broken function runtime.
+const WATER_DATA_ENDPOINT = '/live-waterlevel';
 const WATER_DATA_SOURCE = 'https://nan.thaiwater.net/wl';
 const WATER_REFRESH_MS = 5 * 60 * 1000;
 
@@ -560,17 +562,24 @@ async function loadStationHistory(record) {
   const target = $('#station-history');
   if (!target || !record?.station?.id) return;
   try {
-    const response = await fetch(`/api/waterlevel-history?id=${encodeURIComponent(record.station.id)}`, { cache: 'no-store' });
+    const response = await fetch(`/live-waterlevel-history/${encodeURIComponent(record.station.id)}`, { cache: 'no-store' });
     if (!response.ok) throw new Error('History unavailable');
     const payload = await response.json();
-    target.innerHTML = waterHistoryChart(record, payload.data || []);
+    const history = Array.isArray(payload.data)
+      ? payload.data
+      : Array.isArray(payload.data?.graph_data)
+        ? payload.data.graph_data
+        : [];
+    target.innerHTML = waterHistoryChart(record, history);
   } catch (error) {
     target.innerHTML = '<p class="helper">ยังโหลดกราฟย้อนหลังไม่ได้ แต่ค่า ณ ตอนนี้และแนวโน้มล่าสุดยังอ้างอิงข้อมูลสดได้</p>';
   }
 }
 
 function waterHistoryChart(record, data) {
-  const samples = (Array.isArray(data) ? data : []).map(item => numberValue(item.value)).filter(value => value !== null);
+  const samples = (Array.isArray(data) ? data : [])
+    .map(item => numberValue(item?.value ?? item?.waterlevel ?? item?.waterlevel_msl ?? item?.level))
+    .filter(value => value !== null);
   if (samples.length < 2) return '<p class="helper">ข้อมูลย้อนหลังไม่เพียงพอสำหรับวาดกราฟ</p>';
   const bank = stationBank(record);
   const current = stationLevel(record);
@@ -814,10 +823,15 @@ async function loadDistricts() {
 async function loadWaterData() {
   state.waterLoading = true;
   try {
-    const response = await fetch(`${WATER_DATA_ENDPOINT}&t=${Date.now()}`, { cache: 'no-store', headers: { Accept: 'application/json' } });
+    const separator = WATER_DATA_ENDPOINT.includes('?') ? '&' : '?';
+    const response = await fetch(`${WATER_DATA_ENDPOINT}${separator}t=${Date.now()}`, { cache: 'no-store', headers: { Accept: 'application/json' } });
     if (!response.ok) throw new Error('Water data unavailable');
     const payload = await response.json();
-    const records = Array.isArray(payload.data) ? payload.data : [];
+    const records = Array.isArray(payload.data)
+      ? payload.data
+      : Array.isArray(payload.waterlevel_data?.data)
+        ? payload.waterlevel_data.data
+        : [];
     state.waterData = records.filter(record => record?.geocode?.province_code === '55' || record?.geocode?.province_code === 55);
     state.waterUpdatedAt = payload.updatedAt || state.waterData.map(record => record.waterlevel_datetime).filter(Boolean).sort().at(-1) || null;
     state.waterSource = payload.source || WATER_DATA_SOURCE;

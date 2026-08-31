@@ -1,5 +1,15 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
+  "rewrites": [
+    {
+      "source": "/live-waterlevel",
+      "destination": "https://api-v3.thaiwater.net/api/v1/thaiwater30/public/waterlevel_load"
+    },
+    {
+      "source": "/live-waterlevel-history/:id",
+      "destination": "https://api-v3.thaiwater.net/api/v1/thaiwater30/iframe/waterlevel_graph?station_type=tele_waterlevel&id=:id"
+    }
+  ],
   "headers": [
     {
       "source": "/sw.js",

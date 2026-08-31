@@ -31,7 +31,7 @@ async function proxyJson(response, url, transform) {
 const server = http.createServer((request, response) => {
   const requestPath = decodeURIComponent((request.url || '/').split('?')[0]);
 
-  if (requestPath === '/api/waterlevel') {
+  if (requestPath === '/live-waterlevel' || requestPath === '/api/waterlevel') {
     proxyJson(response, 'https://api-v3.thaiwater.net/api/v1/thaiwater30/public/waterlevel_load', payload => {
       const data = (payload?.waterlevel_data?.data || []).filter(item => String(item?.geocode?.province_code || '') === '55');
       return { source: 'https://nan.thaiwater.net/wl', updatedAt: data.map(item => item?.waterlevel_datetime).filter(Boolean).sort().at(-1) || null, data };
@@ -39,8 +39,10 @@ const server = http.createServer((request, response) => {
     return;
   }
 
-  if (requestPath === '/api/waterlevel-history') {
-    const id = new URL(request.url || '/', 'http://localhost').searchParams.get('id');
+  if (requestPath === '/api/waterlevel-history' || requestPath.startsWith('/live-waterlevel-history/')) {
+    const id = requestPath.startsWith('/live-waterlevel-history/')
+      ? requestPath.split('/').pop()
+      : new URL(request.url || '/', 'http://localhost').searchParams.get('id');
     if (!/^\d+$/.test(id || '')) {
       response.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
       response.end(JSON.stringify({ error: 'A numeric station id is required' }));
