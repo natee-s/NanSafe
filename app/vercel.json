@@ -8,9 +8,7 @@
     {
       "source": "/live-waterlevel-history/:id",
       "destination": "https://api-v3.thaiwater.net/api/v1/thaiwater30/iframe/waterlevel_graph?station_type=tele_waterlevel&id=:id"
-    },
-    { "source": "/", "destination": "/index.html" },
-    { "source": "/:path*", "destination": "/index.html" }
+    }
   ],
   "headers": [
     {

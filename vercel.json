@@ -14,8 +14,7 @@
     { "source": "/styles.css", "destination": "/app/styles.css" },
     { "source": "/sw.js", "destination": "/app/sw.js" },
     { "source": "/manifest.webmanifest", "destination": "/app/manifest.webmanifest" },
-    { "source": "/", "destination": "/app/index.html" },
-    { "source": "/:path*", "destination": "/app/index.html" }
+    { "source": "/", "destination": "/app/index.html" }
   ],
   "headers": [
     {
