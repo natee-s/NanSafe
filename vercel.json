@@ -1,6 +1,8 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "rewrites": [
+    { "source": "/api/waterlevel", "destination": "/api/waterlevel.js" },
+    { "source": "/api/waterlevel-history", "destination": "/api/waterlevel-history.js" },
     { "source": "/data/:path*", "destination": "/app/data/:path*" },
     { "source": "/app.js", "destination": "/app/app.js" },
     { "source": "/styles.css", "destination": "/app/styles.css" },
