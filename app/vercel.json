@@ -16,12 +16,7 @@
       "dest": "https://api-v3.thaiwater.net/api/v1/thaiwater30/iframe/waterlevel_graph?station_type=tele_waterlevel&id=$1"
     },
     {
-      "src": "/data/(.*)",
-      "dest": "/data/$1"
-    },
-    {
-      "src": "/(.*\\.(?:css|js|json|webmanifest|ico|svg|png|jpg|jpeg|gif|txt))",
-      "dest": "/$1"
+      "handle": "filesystem"
     },
     {
       "src": "/(.*)",

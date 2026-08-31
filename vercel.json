@@ -20,8 +20,23 @@
       "dest": "/app/data/$1"
     },
     {
-      "src": "/(.*\\.(?:css|js|json|webmanifest|ico|svg|png|jpg|jpeg|gif|txt))",
-      "dest": "/app/$1"
+      "src": "/app.js",
+      "dest": "/app/app.js"
+    },
+    {
+      "src": "/styles.css",
+      "dest": "/app/styles.css"
+    },
+    {
+      "src": "/sw.js",
+      "dest": "/app/sw.js"
+    },
+    {
+      "src": "/manifest.webmanifest",
+      "dest": "/app/manifest.webmanifest"
+    },
+    {
+      "handle": "filesystem"
     },
     {
       "src": "/(.*)",
