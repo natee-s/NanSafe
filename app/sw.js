@@ -1,4 +1,4 @@
-const CACHE = 'nansafe-live-map-v5';
+const CACHE = 'nansafe-live-map-v6';
 const ASSETS = ['./', './index.html', './styles.css', './app.js', './manifest.webmanifest', './data/nan-boundary.json', './data/nan-districts.json'];
 
 self.addEventListener('install', event => {
@@ -13,7 +13,8 @@ self.addEventListener('activate', event => {
 
 self.addEventListener('fetch', event => {
   if (event.request.method !== 'GET') return;
-  if (new URL(event.request.url).pathname.startsWith('/api/')) {
+  const pathname = new URL(event.request.url).pathname;
+  if (pathname.startsWith('/api/') || pathname === '/live-waterlevel' || pathname.startsWith('/live-waterlevel-history/')) {
     event.respondWith(fetch(event.request));
     return;
   }
