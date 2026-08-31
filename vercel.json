@@ -2,22 +2,22 @@
   "version": 2,
   "builds": [
     {
-      "src": "**/*",
+      "src": "app/**",
       "use": "@vercel/static"
     }
   ],
   "routes": [
     {
       "src": "/data/(.*)",
-      "dest": "/data/$1"
+      "dest": "/app/data/$1"
     },
     {
       "src": "/(.*\\.(?:css|js|json|webmanifest|ico|svg|png|jpg|jpeg|gif|txt))",
-      "dest": "/$1"
+      "dest": "/app/$1"
     },
     {
       "src": "/(.*)",
-      "dest": "/index.html"
+      "dest": "/app/index.html"
     }
   ],
   "headers": [
