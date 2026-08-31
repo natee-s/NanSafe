@@ -9,7 +9,7 @@
   "routes": [
     {
       "src": "/live-waterlevel",
-      "dest": "https://api-v3.thaiwater.net/api/v1/thaiwater30/public/waterlevel_load"
+      "dest": "https://api-v3.thaiwater.net/api/v1/thaiwater30/public/waterlevel_load?province_code=55"
     },
     {
       "src": "/live-waterlevel-history/(\\d+)",
