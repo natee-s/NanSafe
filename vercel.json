@@ -1,42 +1,22 @@
 {
-  "version": 2,
-  "builds": [
-    {
-      "src": "api/**/*.js",
-      "use": "@vercel/node"
-    },
-    {
-      "src": "app/**",
-      "use": "@vercel/static"
-    }
-  ],
-  "routes": [
-    {
-      "src": "/api/(.*)",
-      "dest": "/api/$1"
-    },
-    {
-      "src": "/data/(.*)",
-      "dest": "/app/data/$1"
-    },
-    {
-      "src": "/(.*\\.(?:css|js|json|webmanifest|ico|svg|png|jpg|jpeg|gif|txt))",
-      "dest": "/app/$1"
-    },
-    {
-      "src": "/(.*)",
-      "dest": "/app/index.html"
-    }
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "rewrites": [
+    { "source": "/data/:path*", "destination": "/app/data/:path*" },
+    { "source": "/app.js", "destination": "/app/app.js" },
+    { "source": "/styles.css", "destination": "/app/styles.css" },
+    { "source": "/sw.js", "destination": "/app/sw.js" },
+    { "source": "/manifest.webmanifest", "destination": "/app/manifest.webmanifest" },
+    { "source": "/", "destination": "/app/index.html" },
+    { "source": "/:path*", "destination": "/app/index.html" }
   ],
   "headers": [
     {
       "source": "/sw.js",
-      "headers": [
-        {
-          "key": "Cache-Control",
-          "value": "no-cache"
-        }
-      ]
+      "headers": [{ "key": "Cache-Control", "value": "no-cache" }]
+    },
+    {
+      "source": "/api/:path*",
+      "headers": [{ "key": "Cache-Control", "value": "s-maxage=60, stale-while-revalidate=300" }]
     }
   ]
 }
