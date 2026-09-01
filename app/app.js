@@ -99,6 +99,26 @@ const nanAreas = [
   ['อ.เฉลิมพระเกียรติ', ['ต.ห้วยโก๋น', 'ต.ขุนน่าน']]
 ].map(([district, subdistricts]) => ({ district, subdistricts }));
 
+function normalizeAreaSelection(candidate = {}) {
+  candidate = candidate || {};
+  const fallback = nanAreas.find(item => item.district === 'อ.ปัว') || nanAreas[0];
+  const area = nanAreas.find(item => item.district === candidate.district) || fallback;
+  const subdistrict = area.subdistricts.includes(candidate.subdistrict)
+    ? candidate.subdistrict
+    : area.subdistricts[0];
+  return { district: area.district, subdistrict };
+}
+
+function readAreaSelection() {
+  try {
+    return JSON.parse(readStorage('nansafe-area-selection', '{}') || '{}');
+  } catch (error) {
+    return {};
+  }
+}
+
+const initialAreaSelection = normalizeAreaSelection(readAreaSelection());
+
 const state = {
   page: 'home',
   scenarioIndex: Number(readStorage('nansafe-scenario', '1')),
@@ -112,8 +132,8 @@ const state = {
   waterUpdatedAt: null,
   waterSource: WATER_DATA_SOURCE,
   position: null,
-  area: 'อ.ปัว จ.น่าน',
-  areaSelection: { district: 'อ.ปัว', subdistrict: 'ต.ปัว' },
+  area: `${initialAreaSelection.subdistrict} ${initialAreaSelection.district} จ.น่าน`,
+  areaSelection: initialAreaSelection,
   mapView: { zoom: 1, panX: 0, panY: 0 },
   checklist: JSON.parse(readStorage('nansafe-checklist', '{}') || '{}')
 };
@@ -569,8 +589,7 @@ function stationMarker(x, y, label, color, symbol, action = '', stationId = '', 
 }
 
 function mapOverlayControls({ compact }) {
-  const primary = primaryWaterStation();
-  return `<div class="map-overlay-actions ${compact ? 'is-compact' : ''}" aria-label="จุดข้อมูลบนแผนที่"><button class="map-overlay-button station" type="button" data-action="show-station" ${primary?.station?.id ? `data-station-id="${primary.station.id}"` : ''}>💧 <span>${escapeHTML(primary ? stationDisplayName(primary) : 'สถานีวัดน้ำ')}</span></button><button class="map-overlay-button safe" type="button" data-action="open-route">◆ <span>จุดปลอดภัย</span></button><button class="map-overlay-button user" type="button" data-action="use-location" aria-label="ใช้ตำแหน่งของฉัน">⌖</button></div>`;
+  return `<div class="map-overlay-actions ${compact ? 'is-compact' : ''}" aria-label="จุดข้อมูลบนแผนที่"><button class="map-overlay-button safe" type="button" data-action="open-route">◆ <span>จุดปลอดภัย</span></button><button class="map-overlay-button user" type="button" data-action="use-location" aria-label="ใช้ตำแหน่งของฉัน">⌖</button></div>`;
 }
 
 function fallbackBoundaryPath() {
@@ -865,6 +884,7 @@ function saveArea() {
   const subdistrict = area.subdistricts.includes($('#subdistrict')?.value) ? $('#subdistrict').value : area.subdistricts[0];
   state.areaSelection = { district, subdistrict };
   state.area = `${subdistrict} ${district} จ.น่าน`;
+  writeStorage('nansafe-area-selection', JSON.stringify(state.areaSelection));
   state.position = null;
   closeModal(); render(); toast('เปลี่ยนพื้นที่ติดตามเป็น ' + state.area);
 }

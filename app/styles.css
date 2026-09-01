@@ -101,9 +101,6 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .map-user { color: #07505d; font-weight: 700; }
 .map-overlay-actions { position: absolute; inset: 0; pointer-events: none; z-index: 2; }
 .map-overlay-button { position: absolute; z-index: 2; min-height: 35px; padding: 6px 8px; border: 1px solid rgba(255,255,255,.8); border-radius: 10px; background: rgba(255,255,255,.95); box-shadow: 0 4px 12px rgba(13,58,61,.18); color: var(--teal); font-size: 12px; font-weight: 800; pointer-events: auto; }
-.map-overlay-button.station { top: 50%; left: 45%; color: #875200; }
-.map-overlay-button.station { background: transparent; border-color: transparent; box-shadow: none; text-shadow: 0 1px 3px rgba(255,255,255,.95), 0 0 5px rgba(255,255,255,.95); }
-.map-overlay-button.station:hover, .map-overlay-button.station:focus-visible { background: rgba(255,255,255,.72); border-color: rgba(255,255,255,.9); box-shadow: 0 4px 12px rgba(13,58,61,.12); }
 .map-overlay-button.safe { top: 72%; left: 66%; color: var(--green); }
 .map-overlay-button.user { top: 61%; left: 45%; width: 36px; padding: 0; color: var(--teal); font-size: 17px; }
 .map-overlay-actions.is-compact .map-overlay-button { min-height: 31px; padding: 4px 6px; font-size: 10px; }
