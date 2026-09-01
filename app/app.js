@@ -661,22 +661,12 @@ function stationModal() {
       <div class="metric-row"><div class="metric"><span>ระดับน้ำตอนนี้</span><strong>${level.toFixed(2)} ม.</strong></div><div class="metric"><span>แนวโน้มล่าสุด</span><strong class="trend-value trend-${trend.key}">${trend.icon} ${trend.label}</strong></div><div class="metric"><span>สถานะ</span><strong>${status.label}</strong></div></div>
       <div class="bank-meter"><div class="bank-meter-head"><strong>${gap === null ? `ไม่ทราบระยะถึง${thresholdLabel}` : gap >= 0 ? `เหลือ ${gap.toFixed(2)} ม. ก่อนถึง${thresholdLabel}` : `เกิน${thresholdLabel} ${Math.abs(gap).toFixed(2)} ม.`}</strong><span>${threshold === null ? '' : `${thresholdLabel} ${threshold.value.toFixed(2)} ม.`}</span></div><div class="gauge live-gauge" style="--gauge-position:${currentPercent}%"></div><div class="gauge-labels"><span>${ground === null ? 'ระดับฐาน' : `พื้นน้ำ ${ground.toFixed(2)} ม.`}</span><span>ระดับปัจจุบัน</span><span>${thresholdLabel}</span></div></div>
       ${discharge === null ? '' : `<div class="station-extra"><span>💧 ${stationDischargeLabel(record)}</span><strong>${discharge.toFixed(2)} ลบ.ม./วินาที</strong></div>`}
-      <div class="history-compare"><h3>เทียบระดับน้ำเพื่อให้เข้าใจง่าย</h3>
-        ${ground === null ? '' : compareLine('ระดับท้องน้ำ', ground.toFixed(2) + ' ม.', '20%', '#668f96')}
-        ${previous === null ? '' : compareLine('ครั้งก่อน', previous.toFixed(2) + ' ม.', Math.max(10, Math.min(90, currentPercent - (level - previous) * 20)) + '%', '#6b438b')}
-        ${compareLine('ปัจจุบัน', level.toFixed(2) + ' ม.', Math.max(10, currentPercent) + '%', status.key === 'danger' ? '#b33035' : '#b95306')}
-        ${threshold === null ? '' : compareLine(thresholdLabel, threshold.value.toFixed(2) + ' ม.', '100%', '#cf5b62')}
-      </div>
       <div class="chart-box"><h3>แนวโน้มระดับน้ำย้อนหลัง</h3><div id="station-history"><div class="loading-line"></div><p class="helper">กำลังโหลดกราฟจาก ThaiWater…</p></div></div>
       <p class="helper">แหล่งข้อมูล: ThaiWater / ${escapeHTML(record?.agency?.agency_shortname?.th || record?.agency?.agency_name?.th || '-')} · ม.รทก. คือระดับความสูงอ้างอิงจากระดับน้ำทะเลปานกลาง</p>
     </div>`,
     footer: `<button type="button" class="button button-outline" data-action="close-modal">ปิด</button>`
   });
   loadStationHistory(record);
-}
-
-function compareLine(label, value, width, color) {
-  return `<div class="compare-line"><span>${label}</span><span class="compare-track" style="--compare:${width};--compare-color:${color}"></span><span class="compare-value">${value}</span></div>`;
 }
 
 async function loadStationHistory(record) {
@@ -699,25 +689,67 @@ async function loadStationHistory(record) {
 
 function waterHistoryChart(record, data) {
   const samples = (Array.isArray(data) ? data : [])
-    .map(item => numberValue(item?.value ?? item?.waterlevel ?? item?.waterlevel_msl ?? item?.level))
-    .filter(value => value !== null);
+    .map(item => ({
+      value: numberValue(item?.value ?? item?.waterlevel ?? item?.waterlevel_msl ?? item?.level),
+      datetime: item?.datetime ?? item?.date_time ?? item?.timestamp ?? item?.time ?? item?.created_at ?? null
+    }))
+    .filter(item => item.value !== null);
   if (samples.length < 2) return '<p class="helper">ข้อมูลย้อนหลังไม่เพียงพอสำหรับวาดกราฟ</p>';
   const threshold = stationThreshold(record);
   const current = stationLevel(record);
-  const values = threshold === null ? samples : [...samples, threshold.value];
+  const values = threshold === null ? samples.map(item => item.value) : [...samples.map(item => item.value), threshold.value];
   const max = Math.max(...values) + 0.15;
   const min = Math.min(...values) - 0.15;
-  const width = 380, height = 170, pad = 25;
+  const width = 380, height = 200, pad = 25, axisY = height - 34;
   const step = Math.max(1, Math.floor(samples.length / 42));
   const selected = samples.filter((value, index) => index % step === 0 || index === samples.length - 1);
   const points = selected.map((value, i) => {
     const x = pad + (i * (width - pad * 2)) / (selected.length - 1);
-    const y = height - pad - ((value - min) / (max - min || 1)) * (height - pad * 2);
+    const y = axisY - ((value.value - min) / (max - min || 1)) * (axisY - pad * 2);
     return `${x.toFixed(1)},${y.toFixed(1)}`;
   }).join(' ');
-  const thresholdY = threshold === null ? null : height - pad - ((threshold.value - min) / (max - min || 1)) * (height - pad * 2);
+  const thresholdY = threshold === null ? null : axisY - ((threshold.value - min) / (max - min || 1)) * (axisY - pad * 2);
   const currentPoint = points.split(' ').at(-1).split(',');
-  return `<svg viewBox="0 0 ${width} ${height}" role="img" aria-label="กราฟแนวโน้มระดับน้ำย้อนหลังจาก ThaiWater">${thresholdY === null ? '' : `<line x1="${pad}" y1="${thresholdY}" x2="${width-pad}" y2="${thresholdY}" stroke="#cf5b62" stroke-width="2" stroke-dasharray="5 4"/><text x="${width-pad}" y="${thresholdY-5}" text-anchor="end" font-size="10" fill="#9e343b">${threshold.label} ${threshold.value.toFixed(2)} ม.</text>`}<polyline points="${points}" fill="none" stroke="#0c7685" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/><circle cx="${currentPoint[0]}" cy="${currentPoint[1]}" r="5" fill="#b95306" stroke="#fff" stroke-width="2"/><text x="${pad}" y="${height-3}" font-size="10" fill="#587177">ย้อนหลัง</text><text x="${width-pad}" y="${height-3}" text-anchor="end" font-size="10" fill="#587177">ล่าสุด ${current?.toFixed(2) || '-'} ม.</text></svg>`;
+  const datedSamples = samples.filter(item => parseWaterDate(item.datetime));
+  const firstDate = datedSamples[0] ? parseWaterDate(datedSamples[0].datetime) : null;
+  const lastDate = datedSamples.at(-1) ? parseWaterDate(datedSamples.at(-1).datetime) : null;
+  const durationHours = firstDate && lastDate ? Math.max(0, (lastDate - firstDate) / 3600000) : null;
+  const spanText = formatHistorySpan(durationHours, samples.length);
+  const tickIndexes = [...new Set([0, Math.floor((selected.length - 1) / 2), selected.length - 1])];
+  const tickMarkup = tickIndexes.map(index => {
+    const item = selected[index];
+    const x = pad + (index * (width - pad * 2)) / (selected.length - 1);
+    const label = historyAxisLabel(item.datetime, durationHours);
+    return `<line x1="${x.toFixed(1)}" y1="${axisY}" x2="${x.toFixed(1)}" y2="${axisY + 4}" stroke="#9eb6b8"/><text x="${x.toFixed(1)}" y="${height - 10}" text-anchor="${index === 0 ? 'start' : index === selected.length - 1 ? 'end' : 'middle'}" font-size="10" fill="#587177">${escapeHTML(label)}</text>`;
+  }).join('');
+  return `<div class="history-chart-meta">ย้อนหลัง ${escapeHTML(spanText)} · แกน X: เวลา/วัน · แกน Y: เมตร รทก. · ${samples.length} จุดข้อมูล</div><svg viewBox="0 0 ${width} ${height}" role="img" aria-label="กราฟแนวโน้มระดับน้ำย้อนหลังจาก ThaiWater ${spanText}"><line x1="${pad}" y1="${axisY}" x2="${width-pad}" y2="${axisY}" stroke="#c5d8da"/>${tickMarkup}${thresholdY === null ? '' : `<line x1="${pad}" y1="${thresholdY}" x2="${width-pad}" y2="${thresholdY}" stroke="#cf5b62" stroke-width="2" stroke-dasharray="5 4"/><text x="${width-pad}" y="${thresholdY-5}" text-anchor="end" font-size="10" fill="#9e343b">${threshold.label} ${threshold.value.toFixed(2)} ม.</text>`}<polyline points="${points}" fill="none" stroke="#0c7685" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/><circle cx="${currentPoint[0]}" cy="${currentPoint[1]}" r="5" fill="#b95306" stroke="#fff" stroke-width="2"/><text x="${pad}" y="${pad - 5}" font-size="10" fill="#587177">ระดับน้ำ (ม.รทก.)</text><text x="${width-pad}" y="${axisY - 5}" text-anchor="end" font-size="10" fill="#587177">ล่าสุด ${current?.toFixed(2) || '-'} ม.</text></svg>`;
+}
+
+function parseWaterDate(value) {
+  if (!value) return null;
+  const text = String(value).trim();
+  const match = text.match(/^(\d{4})[-/](\d{2})[-/](\d{2})(?:[ T](\d{2}):(\d{2}))?/);
+  if (match) {
+    const date = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]), Number(match[4] || 0), Number(match[5] || 0));
+    return Number.isNaN(date.getTime()) ? null : date;
+  }
+  const date = new Date(text);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function formatHistorySpan(hours, sampleCount) {
+  if (hours === null) return `${sampleCount} จุดข้อมูล`;
+  if (hours < 24) return `${Math.round(hours)} ชั่วโมง`;
+  const days = Math.floor(hours / 24);
+  const remainder = Math.round(hours % 24);
+  return `${days} วัน${remainder ? ` ${remainder} ชั่วโมง` : ''}`;
+}
+
+function historyAxisLabel(value, durationHours) {
+  const date = parseWaterDate(value);
+  if (!date) return 'ไม่ทราบเวลา';
+  if (durationHours !== null && durationHours <= 48) return new Intl.DateTimeFormat('th-TH', { hour: '2-digit', minute: '2-digit', hour12: false }).format(date);
+  return new Intl.DateTimeFormat('th-TH', { day: 'numeric', month: 'short' }).format(date);
 }
 
 function routeModal() {
