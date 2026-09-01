@@ -801,15 +801,35 @@ function layersModal() {
 }
 
 function areaModal() {
-  const selectedDistrict = state.areaSelection?.district || 'อ.ปัว';
-  const selectedSubdistrict = state.areaSelection?.subdistrict || 'ต.ปัว';
+  const selected = normalizeAreaSelection(state.areaSelection || {});
+  const selectedDistrict = selected.district;
+  const selectedSubdistrict = selected.subdistrict;
   const current = nanAreas.find(item => item.district === selectedDistrict) || nanAreas[0];
   openModal({
     title: 'เลือกพื้นที่ที่ต้องการติดตาม',
     description: 'ใช้ได้เมื่อไม่สะดวกเปิดตำแหน่งโทรศัพท์',
-    body: `<form id="area-form"><div class="field"><label for="district">อำเภอ</label><select id="district" name="district">${nanAreas.map(item => `<option value="${escapeHTML(item.district)}" ${item.district === selectedDistrict ? 'selected' : ''}>${escapeHTML(item.district)}</option>`).join('')}</select></div><div class="field"><label for="subdistrict">ตำบล</label><select id="subdistrict" name="subdistrict">${current.subdistricts.map(item => `<option value="${escapeHTML(item)}" ${item === selectedSubdistrict ? 'selected' : ''}>${escapeHTML(item)}</option>`).join('')}</select></div><p class="helper">เลือกอำเภอก่อน ระบบจะแสดงเฉพาะตำบลที่อยู่ในอำเภอนั้น (จังหวัดน่านมี 15 อำเภอ)</p></form>`,
+    body: `<form id="area-form" novalidate><div class="field"><label for="district">อำเภอ</label><select id="district" name="district" autocomplete="off">${nanAreas.map(item => `<option value="${escapeHTML(item.district)}" ${item.district === selectedDistrict ? 'selected' : ''}>${escapeHTML(item.district)}</option>`).join('')}</select></div><div class="field"><label for="subdistrict">ตำบล</label><select id="subdistrict" name="subdistrict" autocomplete="off">${current.subdistricts.map(item => `<option value="${escapeHTML(item)}" ${item === selectedSubdistrict ? 'selected' : ''}>${escapeHTML(item)}</option>`).join('')}</select></div><p id="area-selection-status" class="helper" role="status">เลือกอำเภอก่อน ระบบจะแสดงเฉพาะตำบลที่อยู่ในอำเภอนั้น (จังหวัดน่านมี 15 อำเภอ)</p></form>`,
     footer: '<button type="button" class="button button-outline" data-action="close-modal">ยกเลิก</button><button type="button" class="button button-warm" data-action="save-area">บันทึกพื้นที่</button>',
     small: true
+  });
+  const form = $('#area-form');
+  const districtSelect = form?.elements?.namedItem('district');
+  const subdistrictSelect = form?.elements?.namedItem('subdistrict');
+  const status = $('#area-selection-status');
+  const updateSubdistricts = () => {
+    const area = nanAreas.find(item => item.district === districtSelect?.value) || nanAreas[0];
+    if (subdistrictSelect) {
+      subdistrictSelect.innerHTML = area.subdistricts.map(item => `<option value="${escapeHTML(item)}">${escapeHTML(item)}</option>`).join('');
+      subdistrictSelect.value = area.subdistricts[0];
+    }
+    if (status) status.textContent = `เลือก ${area.district} แล้ว · กรุณาเลือกตำบลที่ต้องการติดตาม`;
+  };
+  districtSelect?.addEventListener('change', updateSubdistricts);
+  districtSelect?.addEventListener('input', updateSubdistricts);
+  districtSelect?.addEventListener('blur', updateSubdistricts);
+  form?.addEventListener('submit', event => {
+    event.preventDefault();
+    saveArea(form);
   });
 }
 
@@ -891,16 +911,17 @@ async function useLocation() {
   );
 }
 
-function saveArea() {
-  const district = $('#district')?.value || 'อ.ปัว';
-  const area = nanAreas.find(item => item.district === district) || nanAreas[0];
-  const subdistrict = area.subdistricts.includes($('#subdistrict')?.value) ? $('#subdistrict').value : area.subdistricts[0];
-  state.areaSelection = { district, subdistrict };
-  state.area = `${subdistrict} ${district} จ.น่าน`;
+function saveArea(form = $('#area-form')) {
+  if (!form) return;
+  const district = form.elements?.namedItem('district')?.value || '';
+  const selectedSubdistrict = form.elements?.namedItem('subdistrict')?.value || '';
+  const selection = normalizeAreaSelection({ district, subdistrict: selectedSubdistrict });
+  state.areaSelection = selection;
+  state.area = `${selection.subdistrict} ${selection.district} จ.น่าน`;
   writeStorage('nansafe-area-selection', JSON.stringify(state.areaSelection));
   const url = new URL(window.location.href);
-  url.searchParams.set('district', district);
-  url.searchParams.set('subdistrict', subdistrict);
+  url.searchParams.set('district', selection.district);
+  url.searchParams.set('subdistrict', selection.subdistrict);
   window.history.replaceState({}, '', url);
   state.position = null;
   closeModal(); render(); toast('เปลี่ยนพื้นที่ติดตามเป็น ' + state.area);
@@ -959,13 +980,6 @@ document.addEventListener('click', event => {
   if (!button) return;
   if (button.dataset.action === 'close-modal' && button.matches('.modal-backdrop')) { closeModal(); return; }
   handleAction(button.dataset.action, button);
-});
-
-document.addEventListener('change', event => {
-  if (!event.target.matches('#district')) return;
-  const area = nanAreas.find(item => item.district === event.target.value) || nanAreas[0];
-  const subdistrict = $('#subdistrict');
-  if (subdistrict) subdistrict.innerHTML = area.subdistricts.map(item => `<option value="${escapeHTML(item)}">${escapeHTML(item)}</option>`).join('');
 });
 
 document.addEventListener('keydown', event => {
@@ -1054,7 +1068,7 @@ async function init() {
   await loadBoundary();
   await Promise.all([loadDistricts(), loadWaterData()]);
   render();
-  if ('serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js').catch(() => {});
+  if ('serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js?v=12').catch(() => {});
   window.setInterval(async () => {
     await loadWaterData();
     render();
