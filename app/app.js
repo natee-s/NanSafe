@@ -313,7 +313,7 @@ function homeTemplate() {
 
     <section class="section">
       <div class="section-title-row"><h2 class="section-title">ฉันอยู่ตรงไหน และรอบตัวเป็นอย่างไร</h2><button class="text-link" type="button" data-action="navigate" data-page="map">ดูแผนที่เต็ม</button></div>
-      <article class="card map-preview">${mapSvg({ compact: true })}${mapOverlayControls({ compact: true })}<div class="map-meta"><span class="map-pill map-user">● พื้นที่ของฉัน</span><span class="map-pill">${s.flood ? 'พื้นที่น้ำท่วมถูกแสดงบนแผนที่' : 'ยังไม่พบพื้นที่น้ำท่วมใกล้คุณ'}</span></div><div class="map-key"><span class="key-item"><i class="key-symbol key-water"></i>ลำน้ำ</span><span class="key-item"><i class="key-symbol key-risk"></i>พื้นที่เสี่ยง</span><span class="key-item"><i class="key-symbol key-safe"></i>จุดปลอดภัย</span></div></article>
+      <article class="card map-preview"><div class="map-external-title">จังหวัดน่าน</div>${mapSvg({ compact: true })}${mapOverlayControls({ compact: true })}<div class="map-meta"><span class="map-pill map-user">● พื้นที่ของฉัน</span><span class="map-pill">${s.flood ? 'พื้นที่น้ำท่วมถูกแสดงบนแผนที่' : 'ยังไม่พบพื้นที่น้ำท่วมใกล้คุณ'}</span></div><div class="map-key"><span class="key-item"><i class="key-symbol key-water"></i>ลำน้ำ</span><span class="key-item"><i class="key-symbol key-risk"></i>พื้นที่เสี่ยง</span><span class="key-item"><i class="key-symbol key-safe"></i>จุดปลอดภัย</span></div></article>
     </section>
 
     <section class="section">
@@ -386,14 +386,14 @@ function mapTemplate() {
   const s = displayScenario();
   return `
     ${demoStrip()}
-    <div class="page-heading"><div><h1 id="map-title">แผนที่สถานการณ์</h1><p>จังหวัดน่าน · แสดงข้อมูลตามพื้นที่ที่เลือก</p></div><button class="button button-outline button-small" type="button" data-action="use-location">⌖ ตำแหน่งฉัน</button></div>
+    <div class="page-heading"><div><h1 id="map-title">แผนที่สถานการณ์</h1><p>แสดงข้อมูลตามพื้นที่ที่เลือก</p></div><button class="button button-outline button-small" type="button" data-action="use-location">⌖ ตำแหน่งฉัน</button></div>
     <div class="map-toolbar" aria-label="ตัวควบคุมแผนที่">
       <button class="filter-button" type="button" data-action="open-layers">☷ ชั้นข้อมูล</button>
       <button class="filter-button is-on" type="button" data-action="set-scenario" data-index="${(state.scenarioIndex + 1) % scenarios.length}">▣ สาธิต: ${s.label}</button>
       <button class="filter-button" type="button" data-action="open-route">↗ จุดปลอดภัย</button>
     </div>
     <section class="map-page" aria-label="แผนที่จังหวัดน่าน">
-      <div class="map-canvas">
+      <div class="map-external-title">จังหวัดน่าน</div><div class="map-canvas">
         ${mapSvg({ compact: false })}
         ${mapOverlayControls({ compact: false })}
         <div class="map-float-card"><h2>${s.label} · ${s.riskText}</h2><p>${s.flood ? 'มีพื้นที่น้ำท่วมและเส้นทางที่ควรหลีกเลี่ยง กดจุดปลอดภัยเพื่อดูทางไป' : 'แตะสถานีวัดน้ำหรือจุดปลอดภัยบนแผนที่เพื่อดูรายละเอียด'}</p></div>
@@ -501,13 +501,13 @@ function checkRow(key, label) {
   return `<div class="check-row"><input id="check-${key}" type="checkbox" data-action="checklist" data-key="${key}" ${state.checklist[key] ? 'checked' : ''}><label for="check-${key}">${label}</label></div>`;
 }
 
-function districtLayer() {
+function districtLayer({ textScale = 1 } = {}) {
   if (!state.districts.length) return '';
   const colors = ['#d5efbf', '#c9e8b5', '#dff1c8', '#c3e4b3', '#e9f2bd', '#c7e7c1'];
-  return state.districts.map((district, index) => `<g class="district-shape"><path d="${district.path}" fill="${colors[index % colors.length]}" stroke="#7ca57b" stroke-width="1.8" stroke-linejoin="round"/><text x="${district.centroid.x.toFixed(1)}" y="${district.centroid.y.toFixed(1)}" text-anchor="middle" class="district-label">อ.${escapeHTML(district.name)}</text></g>`).join('');
+  return state.districts.map((district, index) => `<g class="district-shape"><path d="${district.path}" fill="${colors[index % colors.length]}" stroke="#7ca57b" stroke-width="1.8" stroke-linejoin="round"/><text x="${district.centroid.x.toFixed(1)}" y="${district.centroid.y.toFixed(1)}" text-anchor="middle" class="district-label" style="font-size:${(10 * textScale).toFixed(2)}px">อ.${escapeHTML(district.name)}</text></g>`).join('');
 }
 
-function liveStationMarkers() {
+function liveStationMarkers({ fontScale = 1 } = {}) {
   const markers = liveWaterRecords().map(record => {
     const lat = numberValue(record?.station?.tele_station_lat);
     const lon = numberValue(record?.station?.tele_station_long);
@@ -515,9 +515,9 @@ function liveStationMarkers() {
     const point = projectPoint(lon, lat);
     const status = stationStatus(record);
     const color = status.key === 'normal' ? '#1a8a61' : status.key === 'watch' ? '#e0a11b' : status.key === 'prepare' ? '#db7431' : '#c33b4b';
-    return stationMarker(point.x, point.y, stationDisplayName(record), color, '💧', 'show-station', record.station.id);
+    return stationMarker(point.x, point.y, stationDisplayName(record), color, '💧', 'show-station', record.station.id, fontScale);
   }).join('');
-  return markers || stationMarker(308, 412, 'สถานีปัว', '#faab24', '💧', 'show-station');
+  return markers || stationMarker(308, 412, 'สถานีปัว', '#faab24', '💧', 'show-station', '', fontScale);
 }
 
 function projectPoint(lon, lat) {
@@ -539,6 +539,7 @@ function mapSvg({ compact }) {
   const zoom = compact ? 1 : state.mapView.zoom;
   const panX = compact ? 0 : state.mapView.panX + (1 - zoom) * 300;
   const panY = compact ? 0 : state.mapView.panY + (1 - zoom) * 380;
+  const mapTextScale = compact ? 1 : Math.max(0.42, Math.pow(zoom, -1.35));
   return `<svg class="map-svg ${compactClass}" viewBox="${viewBox}" role="img" aria-label="แผนที่จังหวัดน่านแสดงขอบเขต 15 อำเภอ จุดวัดระดับน้ำ และสถานการณ์น้ำ">
     <defs>
       <linearGradient id="flood-fill" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#54aee9" stop-opacity=".70"/><stop offset="1" stop-color="#1879ca" stop-opacity=".82"/></linearGradient>
@@ -548,23 +549,23 @@ function mapSvg({ compact }) {
     <g class="map-viewport" transform="translate(${panX.toFixed(1)} ${panY.toFixed(1)}) scale(${zoom.toFixed(2)})">
       <path d="M0 110 C110 70 165 130 260 100 S455 80 600 125 M0 260 C100 230 155 280 255 240 S470 240 600 275 M0 420 C120 380 205 445 320 405 S490 430 600 400 M0 600 C105 560 170 620 275 580 S470 590 600 550" fill="none" stroke="#c4dfdc" stroke-width="19" opacity=".8"/>
       <path d="${borderPath}" fill="#eaf5d9" stroke="#145a52" stroke-width="7" stroke-linejoin="round"/>
-      <g class="map-layer districts ${layerClass('districts')}">${districtLayer()}</g>
+      <g class="map-layer districts ${layerClass('districts')}">${districtLayer({ textScale: mapTextScale })}</g>
       <g class="map-layer river ${layerClass('river')}"><path d="M315 100 C295 152 340 199 307 244 C275 288 334 331 311 374 C287 420 336 462 306 506 C279 548 326 600 298 668" fill="none" stroke="#2288c7" stroke-width="11" opacity=".85" stroke-linecap="round"/><path d="M311 254 C238 280 227 314 196 350 M313 374 C381 410 402 448 449 479 M304 510 C240 535 233 570 195 600" fill="none" stroke="#54aee9" stroke-width="6" opacity=".78" stroke-linecap="round"/></g>
       <g class="map-layer risk ${s.key === 'danger' || s.key === 'evacuate' ? '' : 'is-off'}"><path d="M205 414 C245 374 350 380 400 423 C425 447 406 506 343 524 C276 543 199 495 205 414Z" fill="#d24f5c" opacity=".23" stroke="#b33035" stroke-width="2" stroke-dasharray="7 6"/></g>
       <g class="map-layer flood ${layerClass('flood')} ${floodVisible}"><path d="M250 433 C290 402 366 414 389 451 C405 476 373 516 318 516 C268 514 224 477 250 433Z" fill="url(#flood-fill)" stroke="#1879ca" stroke-width="2" opacity=".91"/><path d="M268 457 C292 441 335 441 367 462" fill="none" stroke="#d8f3ff" stroke-width="3" opacity=".8"/><path d="M265 480 C301 465 342 470 371 488" fill="none" stroke="#d8f3ff" stroke-width="3" opacity=".8"/></g>
       <g class="map-layer route ${layerClass('route')}"><path d="M303 503 C352 542 390 551 442 587" fill="none" stroke="#fff" stroke-width="11" stroke-linecap="round"/><path d="M303 503 C352 542 390 551 442 587" fill="none" stroke="#6b438b" stroke-width="5" stroke-dasharray="9 7" stroke-linecap="round"/></g>
-      <g class="map-layer stations ${layerClass('stations')}">${liveStationMarkers()}</g>
-      <g class="map-layer safe ${layerClass('safe')}">${stationMarker(445, 588, 'จุดปลอดภัย', '#238360', '◆', 'open-route')}${stationMarker(210, 570, 'จุดรวมพล', '#238360', '◆', 'open-route')}</g>
-      <g class="map-marker" aria-hidden="true"><circle cx="302" cy="500" r="14" fill="#07505d" stroke="#fff" stroke-width="5"/><circle cx="302" cy="500" r="24" fill="#07505d" opacity=".15"/><text x="321" y="506" font-size="15">คุณอยู่ที่นี่</text></g>
-      <text x="306" y="198" text-anchor="middle" font-size="22" font-weight="800" fill="#2c6f62" opacity=".9">จังหวัดน่าน</text>
+      <g class="map-layer stations ${layerClass('stations')}">${liveStationMarkers({ fontScale: mapTextScale })}</g>
+      <g class="map-layer safe ${layerClass('safe')}">${stationMarker(445, 588, 'จุดปลอดภัย', '#238360', '◆', 'open-route', '', mapTextScale)}${stationMarker(210, 570, 'จุดรวมพล', '#238360', '◆', 'open-route', '', mapTextScale)}</g>
+      <g class="map-marker" aria-hidden="true"><circle cx="302" cy="500" r="14" fill="#07505d" stroke="#fff" stroke-width="5"/><circle cx="302" cy="500" r="24" fill="#07505d" opacity=".15"/><text x="321" y="506" font-size="${(15 * mapTextScale).toFixed(2)}">คุณอยู่ที่นี่</text></g>
     </g>
     <text x="460" y="728" text-anchor="end" font-size="10" fill="#4a6d73">ขอบเขตจังหวัด: DDPM · ชั้นข้อมูลสถานการณ์: สาธิต</text>
   </svg>`;
 }
 
-function stationMarker(x, y, label, color, symbol, action = '', stationId = '') {
+function stationMarker(x, y, label, color, symbol, action = '', stationId = '', fontScale = 1) {
   const actionAttrs = action ? `data-action="${action}" ${stationId ? `data-station-id="${stationId}"` : ''} tabindex="0" role="button"` : 'aria-hidden="true"';
-  return `<g class="map-marker ${action ? 'is-interactive' : ''}" ${actionAttrs} aria-label="${escapeHTML(label)}"><circle cx="${x.toFixed ? x.toFixed(1) : x}" cy="${y.toFixed ? y.toFixed(1) : y}" r="${action === 'show-station' ? 10 : 15}" fill="${color}" stroke="#fff" stroke-width="3"/><text x="${x}" y="${y + 5}" text-anchor="middle" font-size="11" stroke-width="0" fill="#fff">${symbol}</text><text x="${Number(x) + 14}" y="${Number(y) - 9}" font-size="${action === 'show-station' ? 9 : 13}">${escapeHTML(label)}</text></g>`;
+  const labelSize = (action === 'show-station' ? 9 : 13) * fontScale;
+  return `<g class="map-marker ${action ? 'is-interactive' : ''}" ${actionAttrs} aria-label="${escapeHTML(label)}"><circle cx="${x.toFixed ? x.toFixed(1) : x}" cy="${y.toFixed ? y.toFixed(1) : y}" r="${action === 'show-station' ? 10 : 15}" fill="${color}" stroke="#fff" stroke-width="3"/><text x="${x}" y="${y + 5}" text-anchor="middle" font-size="${(11 * fontScale).toFixed(2)}" stroke-width="0" fill="#fff">${symbol}</text><text x="${Number(x) + 14}" y="${Number(y) - 9}" font-size="${labelSize.toFixed(2)}">${escapeHTML(label)}</text></g>`;
 }
 
 function mapOverlayControls({ compact }) {
