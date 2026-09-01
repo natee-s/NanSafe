@@ -1067,11 +1067,21 @@ async function loadWaterData() {
   }
 }
 
+async function retireLegacyServiceWorkers() {
+  if (!('serviceWorker' in navigator)) return;
+  try {
+    const registrations = await navigator.serviceWorker.getRegistrations();
+    await Promise.all(registrations.map(registration => registration.unregister()));
+  } catch (error) {
+    // The app remains usable when a browser does not allow service worker access.
+  }
+}
+
 async function init() {
+  void retireLegacyServiceWorkers();
   await loadBoundary();
   await Promise.all([loadDistricts(), loadWaterData()]);
   render();
-  if ('serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js?v=13').catch(() => {});
   window.setInterval(async () => {
     await loadWaterData();
     render();

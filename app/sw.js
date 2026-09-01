@@ -1,30 +1,12 @@
-const CACHE = 'nansafe-live-map-v13';
-const ASSETS = ['./', './index.html', './styles.css', './app.js', './manifest.webmanifest', './data/nan-boundary.json', './data/nan-districts.json'];
-
-self.addEventListener('install', event => {
-  event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(ASSETS)));
-  self.skipWaiting();
-});
+// Retires older cache-first workers that could keep users on a buggy app version.
+self.addEventListener('install', () => self.skipWaiting());
 
 self.addEventListener('activate', event => {
-  event.waitUntil(caches.keys().then(keys => Promise.all(keys.filter(key => key !== CACHE).map(key => caches.delete(key)))));
-  self.clients.claim();
-});
-
-self.addEventListener('fetch', event => {
-  if (event.request.method !== 'GET') return;
-  const pathname = new URL(event.request.url).pathname;
-  if (pathname === '/sw.js') {
-    event.respondWith(fetch(event.request, { cache: 'no-store' }));
-    return;
-  }
-  if (pathname.startsWith('/api/') || pathname === '/live-waterlevel' || pathname.startsWith('/live-waterlevel-history/')) {
-    event.respondWith(fetch(event.request));
-    return;
-  }
-  event.respondWith(caches.match(event.request).then(cached => cached || fetch(event.request).then(response => {
-    const copy = response.clone();
-    caches.open(CACHE).then(cache => cache.put(event.request, copy));
-    return response;
-  }).catch(() => caches.match('./index.html'))));
+  event.waitUntil((async () => {
+    const cacheNames = await caches.keys();
+    await Promise.all(cacheNames.map(cacheName => caches.delete(cacheName)));
+    await self.registration.unregister();
+    const clients = await self.clients.matchAll({ type: 'window' });
+    await Promise.all(clients.map(client => client.navigate(client.url)));
+  })());
 });
