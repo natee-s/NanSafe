@@ -978,7 +978,10 @@ function handleAction(action, element) {
 document.addEventListener('click', event => {
   const button = event.target.closest('[data-action]');
   if (!button) return;
-  if (button.dataset.action === 'close-modal' && button.matches('.modal-backdrop')) { closeModal(); return; }
+  if (button.dataset.action === 'close-modal' && button.matches('.modal-backdrop')) {
+    if (event.target === button) closeModal();
+    return;
+  }
   handleAction(button.dataset.action, button);
 });
 
@@ -1068,7 +1071,7 @@ async function init() {
   await loadBoundary();
   await Promise.all([loadDistricts(), loadWaterData()]);
   render();
-  if ('serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js?v=12').catch(() => {});
+  if ('serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js?v=13').catch(() => {});
   window.setInterval(async () => {
     await loadWaterData();
     render();
