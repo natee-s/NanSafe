@@ -1,4 +1,4 @@
-const CACHE = 'nansafe-live-map-v10';
+const CACHE = 'nansafe-live-map-v11';
 const ASSETS = ['./', './index.html', './styles.css', './app.js', './manifest.webmanifest', './data/nan-boundary.json', './data/nan-districts.json'];
 
 self.addEventListener('install', event => {

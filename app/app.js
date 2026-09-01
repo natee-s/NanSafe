@@ -110,11 +110,18 @@ function normalizeAreaSelection(candidate = {}) {
 }
 
 function readAreaSelection() {
+  let saved = {};
   try {
-    return JSON.parse(readStorage('nansafe-area-selection', '{}') || '{}');
+    saved = JSON.parse(readStorage('nansafe-area-selection', '{}') || '{}');
   } catch (error) {
-    return {};
+    saved = {};
   }
+  if (saved && typeof saved === 'object' && (saved.district || saved.subdistrict)) return saved;
+  if (typeof window !== 'undefined') {
+    const params = new URLSearchParams(window.location.search);
+    return { district: params.get('district') || '', subdistrict: params.get('subdistrict') || '' };
+  }
+  return {};
 }
 
 const initialAreaSelection = normalizeAreaSelection(readAreaSelection());
@@ -871,6 +878,12 @@ async function useLocation() {
     position => {
       state.position = { lat: position.coords.latitude, lng: position.coords.longitude, label: `พิกัดที่ใช้ล่าสุด (${position.coords.latitude.toFixed(4)}, ${position.coords.longitude.toFixed(4)})` };
       state.area = 'พื้นที่ใกล้ตำแหน่งของคุณ';
+      state.areaSelection = null;
+      writeStorage('nansafe-area-selection', '');
+      const url = new URL(window.location.href);
+      url.searchParams.delete('district');
+      url.searchParams.delete('subdistrict');
+      window.history.replaceState({}, '', url);
       render(); closeModal(); toast('บันทึกตำแหน่งเพื่อประเมินพื้นที่แล้ว');
     },
     () => { areaModal(); toast('ไม่สามารถใช้ตำแหน่งได้ คุณยังเลือกพื้นที่เองได้', 'warning'); },
@@ -885,6 +898,10 @@ function saveArea() {
   state.areaSelection = { district, subdistrict };
   state.area = `${subdistrict} ${district} จ.น่าน`;
   writeStorage('nansafe-area-selection', JSON.stringify(state.areaSelection));
+  const url = new URL(window.location.href);
+  url.searchParams.set('district', district);
+  url.searchParams.set('subdistrict', subdistrict);
+  window.history.replaceState({}, '', url);
   state.position = null;
   closeModal(); render(); toast('เปลี่ยนพื้นที่ติดตามเป็น ' + state.area);
 }
